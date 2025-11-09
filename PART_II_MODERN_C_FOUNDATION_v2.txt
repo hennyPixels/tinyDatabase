@@ -1,0 +1,3035 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║              PART II: MODERN C FOUNDATION (GUSTEDT'S MODERN C)             ║
+║                          EXPANDED EDITION v2.0                             ║
+║                      Including C23 Features & Standards                    ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+2. LEARNING C THE MODERN WAY
+═════════════════════════════
+
+Resource: "Modern C" by Jens Gustedt (2025 Edition)
+Available: https://gustedt.gitlabpages.inria.fr/modern-c/
+HAL Archive: https://inria.hal.science/hal-02383654
+License: Creative Commons BY-NC (freely available)
+ISBN: 9781633437777 (Manning, 2025)
+
+Modern C emphasizes C11/C17/C23 standards with focus on:
+- Type-generic programming with _Generic
+- Atomic operations and thread support
+- Modern memory models and safety features
+- C23 innovations: nullptr, constexpr, type inference
+- Binary literals and enhanced preprocessing
+- Improved Unicode and internationalization support
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                    2.1 WHAT'S NEW IN C23                                   ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+C23 represents the most significant update to the C language since C99,
+introducing modern safety features, better syntax, and improved compatibility
+with C++.
+
+2.1.1 C23 KEYWORDS AND TYPE SYSTEM
+───────────────────────────────────
+
+New Keywords Introduced:
+┌─────────────┬────────────────────────────────────────────────────┐
+│ Keyword     │ Purpose                                            │
+├─────────────┼────────────────────────────────────────────────────┤
+│ nullptr     │ Type-safe null pointer constant                    │
+│ constexpr   │ Compile-time constant expressions                  │
+│ typeof      │ Type inference from expressions                    │
+│ typeof_unqual│ Type inference without qualifiers                │
+│ _BitInt(N)  │ Precise-width integer types                        │
+│ _Decimal32  │ Decimal floating-point (optional)                  │
+│ true/false  │ Now proper keywords (not from stdbool.h)           │
+│ bool        │ Built-in boolean type                              │
+└─────────────┴────────────────────────────────────────────────────┘
+
+
+A. The nullptr Keyword
+───────────────────────
+
+Before C23 (using NULL):
+    int *ptr = NULL;  // NULL is typically ((void*)0) or 0
+    if (ptr == NULL) { /* ... */ }
+
+    // Ambiguity problems:
+    void func(int x);
+    void func(int *p);
+    func(NULL);  // Which function? Depends on NULL definition!
+
+C23 with nullptr:
+    int *ptr = nullptr;  // Type-safe, unambiguous
+    if (ptr == nullptr) { /* ... */ }
+
+    // No ambiguity:
+    func(nullptr);  // Clearly calls func(int *p)
+
+Practical Database Example:
+    sqlite3 *db = nullptr;  // Clear: this is a pointer
+
+    if (init_database(&db) != SQLITE_OK) {
+        db = nullptr;  // Safe, type-checked
+        return -1;
+    }
+
+
+B. The constexpr Keyword
+─────────────────────────
+
+C23 introduces compile-time evaluation:
+
+    // Compile-time constant
+    constexpr int MAX_LESSONS = 1000;
+    constexpr double PI = 3.14159265358979323846;
+
+    // Compile-time computed
+    constexpr int BUFFER_SIZE = MAX_LESSONS * 4096;
+
+    // Array sizes can use constexpr
+    char buffer[BUFFER_SIZE];  // Size known at compile time
+
+Database Schema Constants:
+    constexpr int MAX_TOPIC_LENGTH = 256;
+    constexpr int MAX_CATEGORY_LENGTH = 128;
+    constexpr int MAX_CONTENT_LENGTH = 4096;
+    constexpr int TOTAL_LESSON_SIZE =
+        MAX_TOPIC_LENGTH + MAX_CATEGORY_LENGTH + MAX_CONTENT_LENGTH;
+
+Benefits:
+- Evaluated at compile time (zero runtime cost)
+- Type-safe (unlike #define)
+- Debugger-friendly (has a type and location)
+- Scope-respecting (unlike macros)
+
+
+C. Type Inference with auto
+────────────────────────────
+
+C23 changes the meaning of 'auto' keyword:
+
+Before C23:
+    auto int x = 10;  // Storage class specifier (rarely used)
+
+C23 type inference:
+    auto x = 10;              // x is int
+    auto y = 3.14;            // y is double
+    auto str = "Hello";       // str is char*
+
+    // With database code:
+    auto db = nullptr;        // Inferred as void* or similar
+    auto result = SQLITE_OK;  // Inferred as int
+
+More complex example:
+    struct Lesson {
+        int id;
+        char topic[256];
+        int difficulty;
+    };
+
+    struct Lesson my_lesson = {.id = 1, .topic = "C23", .difficulty = 2};
+    auto lesson_ptr = &my_lesson;  // Type: struct Lesson*
+
+Note: Unlike C++, C23 auto only works for object definitions, not function
+      return types or parameters.
+
+
+D. Binary Literals and Digit Separators
+────────────────────────────────────────
+
+C23 adds binary integer constants:
+
+    // Binary literals with 0b or 0B prefix
+    int flags = 0b10101010;
+    int mask = 0b11110000;
+
+    // Digit separators for readability
+    int big_number = 1'000'000;
+    long long huge = 1'000'000'000'000LL;
+    int binary = 0b1111'0000'1010'0101;
+    int hex = 0xDEAD'BEEF;
+
+Database flags example:
+    enum LessonFlags {
+        FLAG_COMPLETED   = 0b0001,  // 1
+        FLAG_BOOKMARKED  = 0b0010,  // 2
+        FLAG_DIFFICULT   = 0b0100,  // 4
+        FLAG_REVIEWED    = 0b1000   // 8
+    };
+
+    unsigned int lesson_flags = FLAG_COMPLETED | FLAG_BOOKMARKED;
+
+    if (lesson_flags & FLAG_COMPLETED) {
+        printf("Lesson completed!\n");
+    }
+
+Printf/scanf now support %b and %B:
+    int value = 0b10101010;
+    printf("Binary: %b\n", value);      // Output: 10101010
+    printf("Binary: %#b\n", value);     // Output: 0b10101010
+
+
+E. Enhanced Function Declarations
+──────────────────────────────────
+
+C23 makes void f() equivalent to void f(void):
+
+Before C23:
+    void process_data();       // Accepts ANY parameters (old K&R style)
+    void process_data(void);   // Accepts NO parameters
+
+    process_data(1, 2, 3);     // Legal with first declaration!
+
+C23 (simplified):
+    void process_data();       // Now means: accepts NO parameters
+
+    process_data(1, 2, 3);     // Compile error!
+
+Unnamed parameters now allowed in definitions:
+    // C23: parameter name optional if not used
+    int compare_lessons(const void *, const void *) {
+        // Can't use parameters, but that's okay
+        return 0;
+    }
+
+Variadic functions simplified:
+    // Before C23: need named parameter before ...
+    void log_message(const char *format, ...);
+
+    // C23: can omit named parameter
+    void log_message(...);
+
+    // va_start simplified too:
+    void log_message(const char *format, ...) {
+        va_list args;
+        va_start(args);  // No second argument needed!
+        vprintf(format, args);
+        va_end(args);
+    }
+
+
+F. Attributes (C++ Compatibility)
+─────────────────────────────────
+
+C23 adds standard attributes:
+
+[[deprecated]]
+    [[deprecated]] void old_function(void);
+
+    [[deprecated("Use new_function instead")]]
+    void old_api(void);
+
+[[nodiscard]]
+    [[nodiscard]] int init_database(sqlite3 **db);
+
+    // Compiler warns if return value ignored:
+    init_database(&db);  // Warning: ignoring return value
+
+[[maybe_unused]]
+    void process_lesson([[maybe_unused]] int debug_level) {
+        #ifdef DEBUG
+            printf("Debug level: %d\n", debug_level);
+        #endif
+        // No warning if debug_level unused in release builds
+    }
+
+[[fallthrough]]
+    switch (difficulty) {
+        case DIFFICULTY_BEGINNER:
+            printf("Starting with basics\n");
+            [[fallthrough]];  // Intentional fall-through
+        case DIFFICULTY_INTERMEDIATE:
+            printf("Standard content\n");
+            break;
+        case DIFFICULTY_ADVANCED:
+            printf("Advanced material\n");
+            break;
+    }
+
+[[noreturn]]
+    [[noreturn]] void fatal_error(const char *msg) {
+        fprintf(stderr, "Fatal: %s\n", msg);
+        exit(1);
+    }
+
+
+G. Improved Safety Features
+────────────────────────────
+
+memset_explicit() - Cannot be optimized away:
+    char password[256];
+    get_password(password);
+    authenticate(password);
+
+    // Regular memset might be optimized away (password no longer used):
+    memset(password, 0, sizeof(password));  // Compiler may remove this!
+
+    // memset_explicit guaranteed to execute:
+    memset_explicit(password, 0, sizeof(password));  // Always clears memory
+
+Zero initialization with {}:
+    int array[100] = {};           // All elements = 0
+    char buffer[1024] = {};        // All bytes = 0
+    struct Lesson lesson = {};     // All fields = 0 or nullptr
+
+
+H. Labels at End of Compound Statements
+────────────────────────────────────────
+
+C23 allows labels before declarations and at end of blocks:
+
+Before C23:
+    if (error) {
+        goto cleanup;
+    }
+    // ... code ...
+
+    cleanup:
+        ;  // Empty statement required!
+        sqlite3_close(db);
+        return;
+
+C23:
+    if (error) {
+        goto cleanup;
+    }
+    // ... code ...
+
+    cleanup:  // No empty statement needed
+        sqlite3_close(db);
+        return;
+
+
+I. Preprocessor #embed Directive
+─────────────────────────────────
+
+C23 introduces #embed to include binary data:
+
+    // Include binary file as array
+    const unsigned char image_data[] = {
+        #embed "logo.png"
+    };
+
+    // With limit
+    const unsigned char header[] = {
+        #embed "data.bin" limit(16)
+    };
+
+Database schema embedding:
+    const char default_schema[] =
+        #embed "schema.sql"
+    ;
+
+
+J. _BitInt(N) - Precise-Width Integers
+───────────────────────────────────────
+
+C23 introduces _BitInt(N) for arbitrary-width integers:
+
+    _BitInt(33) large_prime = 8589934592;  // Exactly 33 bits
+    _BitInt(7) small_value = 127;          // Exactly 7 bits
+
+    unsigned _BitInt(128) huge_number;     // 128-bit unsigned
+
+Benefits:
+- Exact bit width (no "at least" ambiguity)
+- Efficient for bit-packed structures
+- Better than uint64_t for specialized needs
+
+
+2.1.2 MIGRATION GUIDE: C17 → C23
+─────────────────────────────────
+
+Code that needs updating:
+
+1. NULL → nullptr (for pointers)
+   Before: sqlite3 *db = NULL;
+   After:  sqlite3 *db = nullptr;
+
+2. #include <stdbool.h> → Remove (bool is now built-in)
+   Before: #include <stdbool.h>
+           bool flag = true;
+   After:  bool flag = true;  // No include needed
+
+3. Empty parameter lists
+   Before: void func() { }      // Ambiguous
+           void func(void) { }  // Clear
+   After:  void func() { }      // Now unambiguous (means no params)
+
+4. Add [[nodiscard]] to important return values
+   After:  [[nodiscard]] int init_database(sqlite3 **db);
+
+5. Replace sensitive data clearing
+   Before: memset(password, 0, sizeof(password));
+   After:  memset_explicit(password, 0, sizeof(password));
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║              2.2 GUSTEDT'S MODERN C - CORE CONCEPTS                        ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+2.2.1 LEVEL 0: ENCOUNTER
+────────────────────────
+
+Gustedt starts with compilation and running programs.
+Our project demonstrates this in the Makefile:
+
+  gcc -Wall -Wextra -std=c23 -g db_manager.c db_common.o -o db_manager -lsqlite3
+
+Key flags explained:
+  -Wall -Wextra : Enable comprehensive warnings
+  -std=c23      : Use C23 standard (latest features)
+  -g            : Include debugging symbols
+  -lsqlite3     : Link SQLite library
+
+Note: If your compiler doesn't support C23 yet, use -std=c17 or -std=c11
+
+Gustedt's emphasis: Start with working code, understand compilation later.
+
+
+2.2.2 LEVEL 1: ACQUAINTANCE
+───────────────────────────
+
+Core concepts demonstrated in our codebase:
+
+1. Variables and Types (db_common.h)
+
+   typedef enum {
+       DIFFICULTY_BEGINNER = 1,
+       DIFFICULTY_INTERMEDIATE = 2,
+       DIFFICULTY_ADVANCED = 3,
+       DIFFICULTY_EXPERT = 4
+   } DifficultyLevel;
+
+   Modern C insight: Enums provide type safety.
+   Instead of: int difficulty = 2;  // What does 2 mean?
+   Use:        DifficultyLevel difficulty = DIFFICULTY_INTERMEDIATE;
+
+   C23 enhancement with constexpr:
+   constexpr DifficultyLevel DEFAULT_DIFFICULTY = DIFFICULTY_BEGINNER;
+
+2. Functions (db_common.c)
+
+   [[nodiscard]] int init_database(sqlite3 **db) {
+       // Function signature shows:
+       // - [[nodiscard]]: Return value must be checked (C23)
+       // - Return type: int (error code)
+       // - Parameter: sqlite3** (pointer to pointer for output)
+       // - Name: init_database (verb phrase, descriptive)
+
+       if (db == nullptr) {  // C23 nullptr
+           return -1;
+       }
+       // ...
+   }
+
+   Gustedt's principle: Functions should have single responsibility.
+
+3. Pointers (throughout codebase)
+
+   // Pass by reference to modify caller's variable
+   init_database(&db);  // db is modified
+
+   // Pass by value (copy)
+   int difficulty = DIFFICULTY_ADVANCED;
+   insert_lesson(db, lesson, difficulty);  // difficulty copied
+
+   Modern C: Understand when to use pointers vs values.
+   C23: Use nullptr instead of NULL for clarity.
+
+
+2.2.3 LEVEL 2: COGNITION
+────────────────────────
+
+Advanced features we use:
+
+1. Structures with Modern Initialization
+
+   typedef struct {
+       int id;
+       char topic[256];
+       char category[128];
+       int difficulty;
+       char content[4096];
+       time_t timestamp;
+   } Lesson;
+
+   C99/C11 designated initializers:
+   Lesson lesson = {
+       .topic = "Modern C",
+       .difficulty = DIFFICULTY_INTERMEDIATE,
+       .content = "Comprehensive guide...",
+       .timestamp = time(nullptr)  // C23 nullptr
+   };
+
+   Benefits:
+   - Self-documenting code
+   - Order-independent initialization
+   - Missing fields automatically zero-initialized
+
+   C23 empty initialization:
+   Lesson lesson = {};  // All fields zeroed
+
+2. Arrays and Strings
+
+   char topic[256];
+   fgets(topic, sizeof(topic), stdin);
+
+   Modern C principle: Always use sizeof(), never hardcode:
+
+   ✗ fgets(topic, 256, stdin);              // Fragile, hard to maintain
+   ✓ fgets(topic, sizeof(topic), stdin);    // Safe, self-documenting
+
+   C23 constexpr for array sizes:
+   constexpr size_t TOPIC_SIZE = 256;
+   char topic[TOPIC_SIZE];
+   fgets(topic, TOPIC_SIZE, stdin);
+
+3. Memory Management
+
+   Current code uses stack allocation:
+   char topic[256];  // Automatic storage duration
+
+   Modern C alternative - VLAs (Variable Length Arrays):
+   size_t len = calculate_needed_size();
+   char topic[len];  // VLA, size determined at runtime
+
+   Or explicit heap allocation:
+   char *topic = malloc(256);
+   if (topic == nullptr) {  // C23 nullptr
+       return ERROR_NO_MEMORY;
+   }
+   // Use topic...
+   free(topic);
+   topic = nullptr;  // Prevent dangling pointer
+
+
+2.2.4 LEVEL 3: EXPERIENCE
+─────────────────────────
+
+Gustedt's advanced topics applicable to our project:
+
+1. Generic Programming with _Generic (C11+)
+
+   Current code:
+   printf("Age: %d\n", age);
+   printf("Pi: %.2f\n", pi);
+
+   Modern C with type-generic print:
+
+   #define PRINT(X) _Generic((X), \
+       int: printf("%d\n", X), \
+       double: printf("%.2f\n", X), \
+       char*: printf("%s\n", X), \
+       default: printf("Unknown type\n") \
+   )
+
+   Usage:
+   PRINT(42);        // Calls printf("%d\n", 42)
+   PRINT(3.14);      // Calls printf("%.2f\n", 3.14)
+   PRINT("Hello");   // Calls printf("%s\n", "Hello")
+
+   C23 improvement with typeof:
+   #define SWAP(a, b) do { \
+       typeof(a) temp = (a); \
+       (a) = (b); \
+       (b) = temp; \
+   } while(0)
+
+2. Atomic Operations (C11+)
+
+   For multi-threaded lesson access:
+
+   #include <stdatomic.h>
+
+   typedef struct {
+       atomic_int access_count;
+       atomic_bool is_locked;
+       // ... other fields
+   } Lesson;
+
+   void increment_access(Lesson *lesson) {
+       atomic_fetch_add(&lesson->access_count, 1);
+   }
+
+   bool try_lock_lesson(Lesson *lesson) {
+       bool expected = false;
+       return atomic_compare_exchange_strong(
+           &lesson->is_locked, &expected, true
+       );
+   }
+
+   Gustedt's emphasis: Atomics prevent race conditions without locks.
+
+3. Static Assertions (Compile-Time Checks)
+
+   _Static_assert(sizeof(int) == 4, "int must be 4 bytes");
+   _Static_assert(DIFFICULTY_EXPERT == 4, "Difficulty enum mismatch");
+
+   // C23: Can omit message in some contexts
+   _Static_assert(sizeof(size_t) >= sizeof(void*));
+
+   These catch errors at compile time, not runtime.
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║            2.3 MODERN C FEATURES FOR DATABASE PROGRAMMING                  ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+2.3.1 COMPOUND LITERALS
+───────────────────────
+
+Instead of:
+   Lesson lesson;
+   lesson.difficulty = DIFFICULTY_ADVANCED;
+   strcpy(lesson.topic, "Modern C");
+   insert_lesson(db, &lesson);
+
+Use compound literal:
+   insert_lesson(db, &(Lesson){
+       .difficulty = DIFFICULTY_ADVANCED,
+       .topic = "Modern C",
+       .timestamp = time(nullptr)
+   });
+
+
+2.3.2 FLEXIBLE ARRAY MEMBERS
+─────────────────────────────
+
+Instead of fixed content[4096]:
+
+   typedef struct {
+       int id;
+       char topic[256];
+       int difficulty;
+       size_t content_length;
+       char content[];  // Flexible array member (FAM)
+   } Lesson;
+
+   Allocation:
+   size_t content_len = strlen(user_content);
+   Lesson *lesson = malloc(sizeof(Lesson) + content_len + 1);
+   if (lesson == nullptr) {  // C23
+       return ERROR_NO_MEMORY;
+   }
+   strcpy(lesson->content, user_content);
+
+
+2.3.3 RESTRICT KEYWORD
+──────────────────────
+
+   void copy_lesson(Lesson *restrict dest, const Lesson *restrict src) {
+       memcpy(dest, src, sizeof(Lesson));
+   }
+
+   'restrict' tells compiler: dest and src don't overlap.
+   Enables better optimization (no aliasing checks needed).
+
+
+2.3.4 INLINE FUNCTIONS
+──────────────────────
+
+   static inline bool is_beginner_lesson(const Lesson *lesson) {
+       return lesson->difficulty == DIFFICULTY_BEGINNER;
+   }
+
+   Benefits:
+   - Inlined for performance (like macros)
+   - Type-safe (unlike macros)
+   - Debuggable (unlike macros)
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║              2.4 COMPREHENSIVE STUDY PATH THROUGH MODERN C                 ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+To build production-quality C systems, study Modern C in this order:
+
+WEEK 1: CHAPTERS 1-6 (Level 0-1 - Fundamentals)
+────────────────────────────────────────────────
+
+□ Chapter 1: Getting Started
+  - Compile and run imperative.c example
+  - Understand compilation process
+  - Exercise: Write program that prints "Hello, C23!"
+
+□ Chapter 2: The Principal Structure
+  - Understand main() function
+  - Command-line arguments
+  - Exercise: Write program that opens database and prints record count
+
+□ Chapter 3: Everything is About Control
+  - if/else, loops (for, while, do-while)
+  - Functions and control flow
+  - Exercise: Implement menu system for database
+
+□ Chapter 4: Expressing Computations
+  - Operators, expressions, precedence
+  - Type conversions
+  - Exercise: Calculate lesson difficulty distribution
+
+□ Chapter 5: Basic Values and Data
+  - Types, constants, literals
+  - sizeof operator
+  - Exercise: Define Lesson structure with proper types
+
+□ Chapter 6: Derived Data Types
+  - Arrays, pointers, structures
+  - Pointer arithmetic
+  - Exercise: Create array of lessons in memory
+
+
+WEEK 2: CHAPTERS 7-9 (Level 1-2 - Practical Programming)
+─────────────────────────────────────────────────────────
+
+□ Chapter 7: Functions
+  - Declaration vs definition
+  - Parameters and return values
+  - Exercise: Implement CRUD functions for lessons
+
+□ Chapter 8: C Library Functions
+  - printf, scanf family
+  - string.h, time.h, stdlib.h
+  - Exercise: Format lesson output with timestamps
+
+□ Chapter 9: Style
+  - Naming conventions
+  - Code formatting
+  - Exercise: Refactor code to Gustedt's style guidelines
+
+
+WEEK 3: CHAPTERS 10-13 (Level 2 - Software Engineering)
+────────────────────────────────────────────────────────
+
+□ Chapter 10: Organization and Documentation
+  - Header files, .c files
+  - Documentation comments
+  - Exercise: Create db_common.h/c structure
+
+□ Chapter 11: Pointers
+  - Pointer arithmetic, arrays as pointers
+  - Strings as character arrays
+  - Exercise: Navigate lesson array using pointer arithmetic
+
+□ Chapter 12: The C Memory Model
+  - Stack vs heap allocation
+  - Lifetime and scope
+  - Exercise: Dynamic lesson allocation with malloc/free
+
+□ Chapter 13: Storage
+  - Storage classes (static, extern, auto, register)
+  - Linkage (internal vs external)
+  - Exercise: Static vs global variables in database module
+
+
+WEEK 4: CHAPTERS 14-17 (Level 3 - Advanced Techniques)
+───────────────────────────────────────────────────────
+
+□ Chapter 14: More Involved Processing
+  - Text processing, file I/O
+  - Binary I/O
+  - Exercise: Import lessons from CSV file
+
+□ Chapter 15: Performance
+  - Optimization techniques
+  - Profiling
+  - Exercise: Benchmark database operations
+
+□ Chapter 16: Function-Like Macros
+  - Preprocessor directives
+  - Macro programming
+  - Exercise: Generic print macro with _Generic
+
+□ Chapter 17: Variations in Control Flow
+  - setjmp/longjmp
+  - Signal handling
+  - Exercise: Error handling in database operations
+
+
+WEEK 5: CHAPTERS 18-19 (Advanced - Concurrency)
+────────────────────────────────────────────────
+
+□ Chapter 18: Threads
+  - Thread creation (thrd_create)
+  - Synchronization primitives
+  - Exercise: Multi-threaded lesson processing
+
+□ Chapter 19: Atomic Access and Memory Consistency
+  - C11 atomics
+  - Memory ordering
+  - Exercise: Lock-free lesson access counter
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║              2.5 HANDS-ON EXERCISES - MODERN C BASICS                      ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+2.5.1 EXERCISE: HELLO MODERN C (C23 Features)
+──────────────────────────────────────────────
+
+File: hello_c23.c
+
+#include <stdio.h>
+
+int main(void) {
+    // C23: constexpr for compile-time constants
+    constexpr int CURRENT_YEAR = 2025;
+    constexpr double VERSION = 2.0;
+
+    // C23: bool is built-in (no <stdbool.h> needed)
+    bool is_modern = true;
+
+    // C23: nullptr instead of NULL
+    char *name = nullptr;
+
+    if (name == nullptr) {
+        name = "C23 Programmer";
+    }
+
+    printf("Hello, %s!\n", name);
+    printf("Welcome to C%d (version %.1f)\n", CURRENT_YEAR - 2002, VERSION);
+    printf("Modern C: %s\n", is_modern ? "Yes!" : "No");
+
+    // C23: Binary literals
+    int flags = 0b1010;
+    printf("Flags (binary): %#b\n", flags);
+    printf("Flags (decimal): %d\n", flags);
+
+    return 0;
+}
+
+Compile: gcc -std=c23 -Wall -Wextra hello_c23.c -o hello_c23
+Run: ./hello_c23
+
+Expected Output:
+    Hello, C23 Programmer!
+    Welcome to C23 (version 2.0)
+    Modern C: Yes!
+    Flags (binary): 0b1010
+    Flags (decimal): 10
+
+
+2.5.2 EXERCISE: DESIGNATED INITIALIZERS
+────────────────────────────────────────
+
+File: lesson_struct.c
+
+#include <stdio.h>
+#include <time.h>
+
+typedef enum {
+    DIFFICULTY_BEGINNER = 1,
+    DIFFICULTY_INTERMEDIATE = 2,
+    DIFFICULTY_ADVANCED = 3,
+    DIFFICULTY_EXPERT = 4
+} DifficultyLevel;
+
+typedef struct {
+    int id;
+    char topic[256];
+    char category[128];
+    DifficultyLevel difficulty;
+    char content[512];
+    time_t timestamp;
+} Lesson;
+
+void print_lesson(const Lesson *lesson) {
+    printf("Lesson #%d\n", lesson->id);
+    printf("Topic: %s\n", lesson->topic);
+    printf("Category: %s\n", lesson->category);
+    printf("Difficulty: %d\n", lesson->difficulty);
+    printf("Content: %s\n", lesson->content);
+    printf("Time: %s\n", ctime(&lesson->timestamp));
+}
+
+int main(void) {
+    // C99+ designated initializers
+    Lesson lesson = {
+        .id = 1,
+        .topic = "Modern C Basics",
+        .category = "Programming",
+        .difficulty = DIFFICULTY_INTERMEDIATE,
+        .content = "Learn modern C programming with C23 features",
+        .timestamp = time(nullptr)  // C23 nullptr
+    };
+
+    print_lesson(&lesson);
+
+    // C23: Empty initialization
+    Lesson empty_lesson = {};
+    printf("\nEmpty lesson ID: %d\n", empty_lesson.id);  // 0
+
+    return 0;
+}
+
+Compile: gcc -std=c23 -Wall lesson_struct.c -o lesson_struct
+
+
+2.5.3 EXERCISE: TYPE-GENERIC PROGRAMMING
+─────────────────────────────────────────
+
+File: generic_print.c
+
+#include <stdio.h>
+
+// Generic print macro using _Generic (C11+)
+#define PRINT(X) _Generic((X), \
+    int: print_int, \
+    long: print_long, \
+    float: print_float, \
+    double: print_double, \
+    char*: print_string, \
+    const char*: print_string \
+)(X)
+
+void print_int(int x) {
+    printf("Integer: %d\n", x);
+}
+
+void print_long(long x) {
+    printf("Long: %ld\n", x);
+}
+
+void print_float(float x) {
+    printf("Float: %.2f\n", x);
+}
+
+void print_double(double x) {
+    printf("Double: %.6f\n", x);
+}
+
+void print_string(const char *x) {
+    printf("String: %s\n", x);
+}
+
+int main(void) {
+    PRINT(42);
+    PRINT(42L);
+    PRINT(3.14f);
+    PRINT(3.14159265358979323846);
+    PRINT("Hello, Generic C!");
+
+    // C23: typeof for type inference
+    typeof(42) answer = 42;
+    PRINT(answer);
+
+    return 0;
+}
+
+Compile: gcc -std=c23 -Wall generic_print.c -o generic_print
+
+
+2.5.4 EXERCISE: ATOMIC OPERATIONS
+──────────────────────────────────
+
+File: atomic_counter.c
+
+#include <stdio.h>
+#include <stdatomic.h>
+#include <threads.h>
+
+constexpr int NUM_THREADS = 10;
+constexpr int INCREMENTS_PER_THREAD = 10000;
+
+atomic_int counter = 0;
+
+int worker(void *arg) {
+    (void)arg;
+    for (int i = 0; i < INCREMENTS_PER_THREAD; i++) {
+        atomic_fetch_add(&counter, 1);
+    }
+    return 0;
+}
+
+int main(void) {
+    thrd_t threads[NUM_THREADS];
+
+    printf("Starting %d threads, each incrementing %d times\n",
+           NUM_THREADS, INCREMENTS_PER_THREAD);
+
+    // Create threads
+    for (int i = 0; i < NUM_THREADS; i++) {
+        if (thrd_create(&threads[i], worker, nullptr) != thrd_success) {
+            fprintf(stderr, "Failed to create thread %d\n", i);
+            return 1;
+        }
+    }
+
+    // Wait for threads to complete
+    for (int i = 0; i < NUM_THREADS; i++) {
+        thrd_join(threads[i], nullptr);
+    }
+
+    int final_count = atomic_load(&counter);
+    int expected = NUM_THREADS * INCREMENTS_PER_THREAD;
+
+    printf("Final count: %d\n", final_count);
+    printf("Expected: %d\n", expected);
+    printf("Result: %s\n", final_count == expected ? "PASS" : "FAIL");
+
+    return final_count == expected ? 0 : 1;
+}
+
+Compile: gcc -std=c23 -Wall atomic_counter.c -o atomic_counter
+Expected: Final count always equals 100000 (no race conditions)
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║          2.6 K&R STYLE EXERCISES (CLASSIC C PROGRAMMING)                   ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+These exercises are inspired by Kernighan & Ritchie's "The C Programming
+Language" (2nd Edition), updated with modern C features.
+
+2.6.1 EXERCISE: CHARACTER COUNTING (K&R Section 1.5.1)
+───────────────────────────────────────────────────────
+
+Problem: Write a program to count characters in input.
+
+File: char_count.c
+
+#include <stdio.h>
+
+int main(void) {
+    long count = 0;
+
+    printf("Enter text (Ctrl+D to end):\n");
+
+    while (getchar() != EOF) {
+        ++count;
+    }
+
+    printf("Character count: %ld\n", count);
+    return 0;
+}
+
+Modern C version with type inference (C23):
+
+#include <stdio.h>
+
+int main(void) {
+    auto count = 0L;  // Type inferred as long
+
+    printf("Enter text (Ctrl+D to end):\n");
+
+    while (getchar() != EOF) {
+        ++count;
+    }
+
+    printf("Character count: %ld\n", count);
+    return 0;
+}
+
+
+2.6.2 EXERCISE: LINE COUNTING (K&R Section 1.5.2)
+──────────────────────────────────────────────────
+
+Problem: Count lines in input.
+
+File: line_count.c
+
+#include <stdio.h>
+
+constexpr char NEWLINE = '\n';
+
+int main(void) {
+    int c;
+    long line_count = 0;
+
+    while ((c = getchar()) != EOF) {
+        if (c == NEWLINE) {
+            ++line_count;
+        }
+    }
+
+    printf("Line count: %ld\n", line_count);
+    return 0;
+}
+
+Exercise: Modify to count lines, words, and characters (like Unix wc command)
+
+
+2.6.3 EXERCISE: WORD COUNTING (K&R Section 1.5.4)
+──────────────────────────────────────────────────
+
+File: word_count.c
+
+#include <stdio.h>
+#include <stdbool.h>
+
+constexpr char SPACE = ' ';
+constexpr char TAB = '\t';
+constexpr char NEWLINE = '\n';
+
+bool is_whitespace(int c) {
+    return c == SPACE || c == TAB || c == NEWLINE;
+}
+
+int main(void) {
+    int c;
+    long words = 0;
+    bool in_word = false;
+
+    while ((c = getchar()) != EOF) {
+        if (is_whitespace(c)) {
+            in_word = false;
+        } else if (!in_word) {
+            in_word = true;
+            ++words;
+        }
+    }
+
+    printf("Word count: %ld\n", words);
+    return 0;
+}
+
+
+2.6.4 EXERCISE: ARRAY HISTOGRAM (K&R Section 1.6)
+──────────────────────────────────────────────────
+
+Problem: Print histogram of word lengths.
+
+File: word_histogram.c
+
+#include <stdio.h>
+#include <stdbool.h>
+
+constexpr int MAX_WORD_LENGTH = 20;
+
+int main(void) {
+    int word_lengths[MAX_WORD_LENGTH] = {};  // C23: zero-init
+    int current_length = 0;
+    int c;
+
+    // Count word lengths
+    while ((c = getchar()) != EOF) {
+        if (c == ' ' || c == '\n' || c == '\t') {
+            if (current_length > 0) {
+                if (current_length < MAX_WORD_LENGTH) {
+                    ++word_lengths[current_length];
+                } else {
+                    ++word_lengths[MAX_WORD_LENGTH - 1];
+                }
+                current_length = 0;
+            }
+        } else {
+            ++current_length;
+        }
+    }
+
+    // Print histogram
+    printf("\nWord Length Histogram:\n");
+    for (int i = 1; i < MAX_WORD_LENGTH; i++) {
+        if (word_lengths[i] > 0) {
+            printf("%2d: ", i);
+            for (int j = 0; j < word_lengths[i]; j++) {
+                printf("*");
+            }
+            printf(" (%d)\n", word_lengths[i]);
+        }
+    }
+
+    return 0;
+}
+
+
+2.6.5 EXERCISE: POWER FUNCTION (K&R Section 1.7)
+─────────────────────────────────────────────────
+
+File: power.c
+
+#include <stdio.h>
+
+// Raise base to n-th power; n >= 0
+[[nodiscard]] int power(int base, int n) {
+    int result = 1;
+
+    for (int i = 1; i <= n; ++i) {
+        result *= base;
+    }
+
+    return result;
+}
+
+int main(void) {
+    for (int i = 0; i < 10; ++i) {
+        printf("2^%d = %d\n", i, power(2, i));
+    }
+
+    printf("\n");
+
+    for (int i = 0; i < 10; ++i) {
+        printf("3^%d = %d\n", i, power(3, i));
+    }
+
+    return 0;
+}
+
+Exercise: Implement recursive version and compare performance.
+
+
+2.6.6 EXERCISE: TEMPERATURE CONVERSION TABLE (K&R Section 1.2)
+───────────────────────────────────────────────────────────────
+
+File: temperature.c
+
+#include <stdio.h>
+
+constexpr double FAHR_TO_CELSIUS_OFFSET = 32.0;
+constexpr double FAHR_TO_CELSIUS_RATIO = 5.0 / 9.0;
+
+double fahr_to_celsius(double fahr) {
+    return (fahr - FAHR_TO_CELSIUS_OFFSET) * FAHR_TO_CELSIUS_RATIO;
+}
+
+double celsius_to_fahr(double celsius) {
+    return (celsius / FAHR_TO_CELSIUS_RATIO) + FAHR_TO_CELSIUS_OFFSET;
+}
+
+int main(void) {
+    printf("Fahrenheit to Celsius Conversion Table\n");
+    printf("========================================\n");
+    printf("  °F      °C\n");
+    printf("--------  --------\n");
+
+    for (int fahr = 0; fahr <= 300; fahr += 20) {
+        printf("%6d  %8.1f\n", fahr, fahr_to_celsius(fahr));
+    }
+
+    return 0;
+}
+
+
+2.6.7 EXERCISE: STRING COPY (K&R Section 2.3)
+──────────────────────────────────────────────
+
+File: string_copy.c
+
+#include <stdio.h>
+
+// Copy string src to dest (assuming dest is large enough)
+void string_copy(char *dest, const char *src) {
+    while ((*dest++ = *src++) != '\0')
+        ;
+}
+
+// Modern version with bounds checking
+void string_copy_safe(char *dest, const char *src, size_t dest_size) {
+    if (dest == nullptr || src == nullptr || dest_size == 0) {
+        return;
+    }
+
+    size_t i;
+    for (i = 0; i < dest_size - 1 && src[i] != '\0'; ++i) {
+        dest[i] = src[i];
+    }
+    dest[i] = '\0';
+}
+
+int main(void) {
+    char source[] = "Hello, Modern C!";
+    char destination[100] = {};  // C23: zero-init
+
+    string_copy_safe(destination, source, sizeof(destination));
+
+    printf("Source: %s\n", source);
+    printf("Destination: %s\n", destination);
+
+    return 0;
+}
+
+
+2.6.8 EXERCISE: SQUEEZE FUNCTION (K&R Section 2.8)
+───────────────────────────────────────────────────
+
+Problem: Delete all occurrences of character c from string s.
+
+File: squeeze.c
+
+#include <stdio.h>
+#include <string.h>
+
+void squeeze(char *s, char c) {
+    int i, j;
+
+    for (i = j = 0; s[i] != '\0'; i++) {
+        if (s[i] != c) {
+            s[j++] = s[i];
+        }
+    }
+    s[j] = '\0';
+}
+
+int main(void) {
+    char text[] = "Hello, World!";
+    printf("Before: %s\n", text);
+
+    squeeze(text, 'l');
+    printf("After squeezing 'l': %s\n", text);
+
+    strcpy(text, "Mississippi");
+    printf("\nBefore: %s\n", text);
+    squeeze(text, 's');
+    printf("After squeezing 's': %s\n", text);
+
+    return 0;
+}
+
+Exercise: Modify to remove all characters present in a second string.
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║        2.7 TEXT-BASED ADVENTURE GAMES & INTERACTIVE FICTION                ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+Text-based games are excellent for learning C because they require:
+- String manipulation
+- State management
+- Data structures (rooms, items, characters)
+- User input handling
+- File I/O (save/load games)
+
+2.7.1 BASIC ADVENTURE GAME STRUCTURE
+─────────────────────────────────────
+
+File: simple_adventure.c
+
+#include <stdio.h>
+#include <string.h>
+#include <stdbool.h>
+
+constexpr int MAX_INPUT = 100;
+constexpr int MAX_DESCRIPTION = 256;
+
+typedef enum {
+    ROOM_ENTRANCE,
+    ROOM_HALLWAY,
+    ROOM_TREASURE,
+    ROOM_COUNT
+} RoomID;
+
+typedef struct {
+    RoomID id;
+    char description[MAX_DESCRIPTION];
+    RoomID north, south, east, west;
+    bool has_treasure;
+} Room;
+
+// Initialize game world
+void init_rooms(Room rooms[]) {
+    rooms[ROOM_ENTRANCE] = (Room){
+        .id = ROOM_ENTRANCE,
+        .description = "You are at the entrance of a dark dungeon.",
+        .north = ROOM_HALLWAY,
+        .south = ROOM_ENTRANCE,
+        .east = ROOM_ENTRANCE,
+        .west = ROOM_ENTRANCE,
+        .has_treasure = false
+    };
+
+    rooms[ROOM_HALLWAY] = (Room){
+        .id = ROOM_HALLWAY,
+        .description = "A long, dusty hallway extends before you.",
+        .north = ROOM_TREASURE,
+        .south = ROOM_ENTRANCE,
+        .east = ROOM_HALLWAY,
+        .west = ROOM_HALLWAY,
+        .has_treasure = false
+    };
+
+    rooms[ROOM_TREASURE] = (Room){
+        .id = ROOM_TREASURE,
+        .description = "You found the treasure room! Gold glitters everywhere.",
+        .north = ROOM_TREASURE,
+        .south = ROOM_HALLWAY,
+        .east = ROOM_TREASURE,
+        .west = ROOM_TREASURE,
+        .has_treasure = true
+    };
+}
+
+void describe_room(const Room *room) {
+    printf("\n%s\n", room->description);
+    if (room->has_treasure) {
+        printf("There is treasure here!\n");
+    }
+    printf("\nYou can go: ");
+    printf("north, south, east, west\n");
+}
+
+bool process_command(const char *command, RoomID *current_room, Room rooms[]) {
+    if (strcmp(command, "quit") == 0 || strcmp(command, "q") == 0) {
+        return false;
+    }
+    else if (strcmp(command, "north") == 0 || strcmp(command, "n") == 0) {
+        *current_room = rooms[*current_room].north;
+    }
+    else if (strcmp(command, "south") == 0 || strcmp(command, "s") == 0) {
+        *current_room = rooms[*current_room].south;
+    }
+    else if (strcmp(command, "east") == 0 || strcmp(command, "e") == 0) {
+        *current_room = rooms[*current_room].east;
+    }
+    else if (strcmp(command, "west") == 0 || strcmp(command, "w") == 0) {
+        *current_room = rooms[*current_room].west;
+    }
+    else if (strcmp(command, "look") == 0 || strcmp(command, "l") == 0) {
+        // Just redescribe current room
+    }
+    else {
+        printf("I don't understand '%s'.\n", command);
+        printf("Try: north, south, east, west, look, quit\n");
+    }
+
+    return true;
+}
+
+int main(void) {
+    Room rooms[ROOM_COUNT];
+    init_rooms(rooms);
+
+    RoomID current_room = ROOM_ENTRANCE;
+    char input[MAX_INPUT];
+    bool playing = true;
+
+    printf("=== DUNGEON ADVENTURE ===\n");
+    printf("Find the treasure!\n");
+
+    while (playing) {
+        describe_room(&rooms[current_room]);
+
+        printf("\n> ");
+        if (fgets(input, sizeof(input), stdin) == nullptr) {
+            break;
+        }
+
+        // Remove newline
+        input[strcspn(input, "\n")] = '\0';
+
+        // Convert to lowercase (simple version)
+        for (char *p = input; *p; ++p) {
+            if (*p >= 'A' && *p <= 'Z') {
+                *p = *p - 'A' + 'a';
+            }
+        }
+
+        playing = process_command(input, &current_room, rooms);
+
+        // Check win condition
+        if (current_room == ROOM_TREASURE) {
+            printf("\n🎉 CONGRATULATIONS! You found the treasure!\n");
+            break;
+        }
+    }
+
+    printf("\nThanks for playing!\n");
+    return 0;
+}
+
+
+2.7.2 INVENTORY SYSTEM
+──────────────────────
+
+File: inventory.c
+
+#include <stdio.h>
+#include <string.h>
+#include <stdbool.h>
+
+constexpr int MAX_ITEMS = 10;
+constexpr int MAX_ITEM_NAME = 50;
+
+typedef struct {
+    char name[MAX_ITEM_NAME];
+    int quantity;
+} Item;
+
+typedef struct {
+    Item items[MAX_ITEMS];
+    int count;
+} Inventory;
+
+void init_inventory(Inventory *inv) {
+    inv->count = 0;
+    for (int i = 0; i < MAX_ITEMS; ++i) {
+        inv->items[i] = (Item){};  // C23: zero-init
+    }
+}
+
+bool add_item(Inventory *inv, const char *name, int quantity) {
+    // Check if item already exists
+    for (int i = 0; i < inv->count; ++i) {
+        if (strcmp(inv->items[i].name, name) == 0) {
+            inv->items[i].quantity += quantity;
+            return true;
+        }
+    }
+
+    // Add new item
+    if (inv->count < MAX_ITEMS) {
+        strncpy(inv->items[inv->count].name, name, MAX_ITEM_NAME - 1);
+        inv->items[inv->count].name[MAX_ITEM_NAME - 1] = '\0';
+        inv->items[inv->count].quantity = quantity;
+        inv->count++;
+        return true;
+    }
+
+    return false;  // Inventory full
+}
+
+bool remove_item(Inventory *inv, const char *name, int quantity) {
+    for (int i = 0; i < inv->count; ++i) {
+        if (strcmp(inv->items[i].name, name) == 0) {
+            if (inv->items[i].quantity >= quantity) {
+                inv->items[i].quantity -= quantity;
+
+                // Remove item if quantity is 0
+                if (inv->items[i].quantity == 0) {
+                    for (int j = i; j < inv->count - 1; ++j) {
+                        inv->items[j] = inv->items[j + 1];
+                    }
+                    inv->count--;
+                }
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+void print_inventory(const Inventory *inv) {
+    printf("\n=== INVENTORY ===\n");
+    if (inv->count == 0) {
+        printf("Empty\n");
+        return;
+    }
+
+    for (int i = 0; i < inv->count; ++i) {
+        printf("%s x%d\n", inv->items[i].name, inv->items[i].quantity);
+    }
+}
+
+int main(void) {
+    Inventory player_inventory;
+    init_inventory(&player_inventory);
+
+    printf("Starting adventure...\n");
+
+    add_item(&player_inventory, "Sword", 1);
+    add_item(&player_inventory, "Health Potion", 3);
+    add_item(&player_inventory, "Gold Coin", 50);
+
+    print_inventory(&player_inventory);
+
+    printf("\nUsing 1 health potion...\n");
+    remove_item(&player_inventory, "Health Potion", 1);
+
+    print_inventory(&player_inventory);
+
+    printf("\nFound more gold!\n");
+    add_item(&player_inventory, "Gold Coin", 25);
+
+    print_inventory(&player_inventory);
+
+    return 0;
+}
+
+
+2.7.3 PARSER FOR TEXT COMMANDS
+───────────────────────────────
+
+File: command_parser.c
+
+#include <stdio.h>
+#include <string.h>
+#include <stdbool.h>
+#include <ctype.h>
+
+constexpr int MAX_INPUT = 256;
+constexpr int MAX_WORDS = 10;
+
+typedef enum {
+    VERB_UNKNOWN,
+    VERB_GO,
+    VERB_TAKE,
+    VERB_DROP,
+    VERB_USE,
+    VERB_LOOK,
+    VERB_INVENTORY,
+    VERB_QUIT
+} Verb;
+
+typedef struct {
+    Verb verb;
+    char object[MAX_INPUT];
+    char preposition[MAX_INPUT];
+    char indirect_object[MAX_INPUT];
+} Command;
+
+void to_lowercase(char *str) {
+    for (; *str; ++str) {
+        *str = tolower((unsigned char)*str);
+    }
+}
+
+Verb parse_verb(const char *word) {
+    if (strcmp(word, "go") == 0 || strcmp(word, "move") == 0 ||
+        strcmp(word, "walk") == 0) {
+        return VERB_GO;
+    }
+    else if (strcmp(word, "take") == 0 || strcmp(word, "get") == 0 ||
+             strcmp(word, "grab") == 0) {
+        return VERB_TAKE;
+    }
+    else if (strcmp(word, "drop") == 0 || strcmp(word, "put") == 0) {
+        return VERB_DROP;
+    }
+    else if (strcmp(word, "use") == 0) {
+        return VERB_USE;
+    }
+    else if (strcmp(word, "look") == 0 || strcmp(word, "examine") == 0 ||
+             strcmp(word, "l") == 0) {
+        return VERB_LOOK;
+    }
+    else if (strcmp(word, "inventory") == 0 || strcmp(word, "i") == 0) {
+        return VERB_INVENTORY;
+    }
+    else if (strcmp(word, "quit") == 0 || strcmp(word, "exit") == 0 ||
+             strcmp(word, "q") == 0) {
+        return VERB_QUIT;
+    }
+
+    return VERB_UNKNOWN;
+}
+
+bool parse_command(const char *input, Command *cmd) {
+    char buffer[MAX_INPUT];
+    strncpy(buffer, input, MAX_INPUT - 1);
+    buffer[MAX_INPUT - 1] = '\0';
+
+    to_lowercase(buffer);
+
+    // Initialize command
+    *cmd = (Command){
+        .verb = VERB_UNKNOWN,
+        .object = "",
+        .preposition = "",
+        .indirect_object = ""
+    };
+
+    // Tokenize input
+    char *token = strtok(buffer, " \t\n");
+    if (token == nullptr) {
+        return false;
+    }
+
+    // Parse verb
+    cmd->verb = parse_verb(token);
+    if (cmd->verb == VERB_UNKNOWN) {
+        return false;
+    }
+
+    // Parse object
+    token = strtok(nullptr, " \t\n");
+    if (token != nullptr) {
+        strncpy(cmd->object, token, MAX_INPUT - 1);
+
+        // Parse preposition
+        token = strtok(nullptr, " \t\n");
+        if (token != nullptr) {
+            strncpy(cmd->preposition, token, MAX_INPUT - 1);
+
+            // Parse indirect object
+            token = strtok(nullptr, " \t\n");
+            if (token != nullptr) {
+                strncpy(cmd->indirect_object, token, MAX_INPUT - 1);
+            }
+        }
+    }
+
+    return true;
+}
+
+void print_command(const Command *cmd) {
+    const char *verb_str = "UNKNOWN";
+
+    switch (cmd->verb) {
+        case VERB_GO: verb_str = "GO"; break;
+        case VERB_TAKE: verb_str = "TAKE"; break;
+        case VERB_DROP: verb_str = "DROP"; break;
+        case VERB_USE: verb_str = "USE"; break;
+        case VERB_LOOK: verb_str = "LOOK"; break;
+        case VERB_INVENTORY: verb_str = "INVENTORY"; break;
+        case VERB_QUIT: verb_str = "QUIT"; break;
+        default: break;
+    }
+
+    printf("Verb: %s\n", verb_str);
+    if (cmd->object[0] != '\0') {
+        printf("Object: %s\n", cmd->object);
+    }
+    if (cmd->preposition[0] != '\0') {
+        printf("Preposition: %s\n", cmd->preposition);
+    }
+    if (cmd->indirect_object[0] != '\0') {
+        printf("Indirect Object: %s\n", cmd->indirect_object);
+    }
+}
+
+int main(void) {
+    char input[MAX_INPUT];
+    Command cmd;
+
+    printf("=== COMMAND PARSER ===\n");
+    printf("Try commands like:\n");
+    printf("  go north\n");
+    printf("  take sword\n");
+    printf("  use key on door\n");
+    printf("  look\n");
+    printf("  quit\n\n");
+
+    while (true) {
+        printf("> ");
+        if (fgets(input, sizeof(input), stdin) == nullptr) {
+            break;
+        }
+
+        if (parse_command(input, &cmd)) {
+            print_command(&cmd);
+            printf("\n");
+
+            if (cmd.verb == VERB_QUIT) {
+                break;
+            }
+        } else {
+            printf("I don't understand that command.\n\n");
+        }
+    }
+
+    printf("Goodbye!\n");
+    return 0;
+}
+
+
+2.7.4 SAVE/LOAD GAME STATE
+──────────────────────────
+
+File: save_load.c
+
+#include <stdio.h>
+#include <string.h>
+#include <stdbool.h>
+
+typedef struct {
+    int player_health;
+    int player_level;
+    int current_room;
+    int gold;
+    char player_name[50];
+} GameState;
+
+constexpr char SAVE_FILE[] = "savegame.dat";
+
+bool save_game(const GameState *state) {
+    FILE *file = fopen(SAVE_FILE, "wb");
+    if (file == nullptr) {
+        perror("Error opening save file");
+        return false;
+    }
+
+    size_t written = fwrite(state, sizeof(GameState), 1, file);
+    fclose(file);
+
+    if (written != 1) {
+        fprintf(stderr, "Error writing save file\n");
+        return false;
+    }
+
+    printf("Game saved successfully!\n");
+    return true;
+}
+
+bool load_game(GameState *state) {
+    FILE *file = fopen(SAVE_FILE, "rb");
+    if (file == nullptr) {
+        perror("Error opening save file");
+        return false;
+    }
+
+    size_t read = fread(state, sizeof(GameState), 1, file);
+    fclose(file);
+
+    if (read != 1) {
+        fprintf(stderr, "Error reading save file\n");
+        return false;
+    }
+
+    printf("Game loaded successfully!\n");
+    return true;
+}
+
+void print_game_state(const GameState *state) {
+    printf("\n=== GAME STATE ===\n");
+    printf("Player: %s\n", state->player_name);
+    printf("Health: %d\n", state->player_health);
+    printf("Level: %d\n", state->player_level);
+    printf("Gold: %d\n", state->gold);
+    printf("Current Room: %d\n", state->current_room);
+    printf("==================\n\n");
+}
+
+int main(void) {
+    GameState state = {
+        .player_health = 100,
+        .player_level = 5,
+        .current_room = 3,
+        .gold = 250,
+        .player_name = "Hero"
+    };
+
+    printf("Creating new game state...\n");
+    print_game_state(&state);
+
+    printf("Saving game...\n");
+    save_game(&state);
+
+    printf("\nModifying game state...\n");
+    state.player_health = 50;
+    state.gold = 500;
+    state.current_room = 7;
+    print_game_state(&state);
+
+    printf("Loading saved game...\n");
+    if (load_game(&state)) {
+        print_game_state(&state);
+    }
+
+    return 0;
+}
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║              2.8 INTERDISCIPLINARY EXERCISES - PHYSICS                     ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+C is widely used in scientific computing due to its performance and
+low-level control. These exercises demonstrate C's applications in physics.
+
+2.8.1 EXERCISE: PROJECTILE MOTION
+──────────────────────────────────
+
+Problem: Calculate the trajectory of a projectile under gravity.
+
+File: projectile.c
+
+#include <stdio.h>
+#include <math.h>
+
+constexpr double GRAVITY = 9.81;  // m/s²
+constexpr double PI = 3.14159265358979323846;
+
+typedef struct {
+    double x;  // meters
+    double y;  // meters
+} Point;
+
+typedef struct {
+    double velocity;     // m/s
+    double angle;        // radians
+    double time_step;    // seconds
+} ProjectileParams;
+
+double degrees_to_radians(double degrees) {
+    return degrees * PI / 180.0;
+}
+
+Point calculate_position(const ProjectileParams *params, double t) {
+    double vx = params->velocity * cos(params->angle);
+    double vy = params->velocity * sin(params->angle);
+
+    Point pos;
+    pos.x = vx * t;
+    pos.y = vy * t - 0.5 * GRAVITY * t * t;
+
+    return pos;
+}
+
+double calculate_range(double velocity, double angle) {
+    return (velocity * velocity * sin(2 * angle)) / GRAVITY;
+}
+
+double calculate_max_height(double velocity, double angle) {
+    double vy = velocity * sin(angle);
+    return (vy * vy) / (2 * GRAVITY);
+}
+
+double calculate_time_of_flight(double velocity, double angle) {
+    return (2 * velocity * sin(angle)) / GRAVITY;
+}
+
+int main(void) {
+    ProjectileParams params = {
+        .velocity = 20.0,      // 20 m/s
+        .angle = degrees_to_radians(45.0),
+        .time_step = 0.1       // 0.1 seconds
+    };
+
+    printf("=== PROJECTILE MOTION SIMULATOR ===\n");
+    printf("Initial velocity: %.1f m/s\n", params.velocity);
+    printf("Launch angle: %.1f degrees\n", params.angle * 180.0 / PI);
+    printf("\n");
+
+    double range = calculate_range(params.velocity, params.angle);
+    double max_height = calculate_max_height(params.velocity, params.angle);
+    double time_of_flight = calculate_time_of_flight(params.velocity, params.angle);
+
+    printf("Calculated values:\n");
+    printf("  Range: %.2f m\n", range);
+    printf("  Max height: %.2f m\n", max_height);
+    printf("  Time of flight: %.2f s\n", time_of_flight);
+    printf("\n");
+
+    printf("Trajectory:\n");
+    printf("  Time(s)  X(m)    Y(m)\n");
+    printf("  -------  ------  ------\n");
+
+    for (double t = 0; t <= time_of_flight; t += params.time_step) {
+        Point pos = calculate_position(&params, t);
+        if (pos.y >= 0) {  // Stop when projectile hits ground
+            printf("  %6.2f   %6.2f  %6.2f\n", t, pos.x, pos.y);
+        }
+    }
+
+    return 0;
+}
+
+Compile: gcc -std=c23 -Wall -lm projectile.c -o projectile
+
+
+2.8.2 EXERCISE: SIMPLE HARMONIC MOTION
+───────────────────────────────────────
+
+Problem: Simulate a mass-spring system.
+
+File: spring.c
+
+#include <stdio.h>
+#include <math.h>
+
+constexpr double PI = 3.14159265358979323846;
+
+typedef struct {
+    double mass;           // kg
+    double spring_constant; // N/m (k)
+    double amplitude;      // m
+    double phase;          // radians
+} SpringSystem;
+
+double calculate_angular_frequency(const SpringSystem *sys) {
+    return sqrt(sys->spring_constant / sys->mass);
+}
+
+double calculate_period(const SpringSystem *sys) {
+    return 2.0 * PI * sqrt(sys->mass / sys->spring_constant);
+}
+
+double calculate_position(const SpringSystem *sys, double t) {
+    double omega = calculate_angular_frequency(sys);
+    return sys->amplitude * cos(omega * t + sys->phase);
+}
+
+double calculate_velocity(const SpringSystem *sys, double t) {
+    double omega = calculate_angular_frequency(sys);
+    return -sys->amplitude * omega * sin(omega * t + sys->phase);
+}
+
+double calculate_acceleration(const SpringSystem *sys, double t) {
+    double omega = calculate_angular_frequency(sys);
+    return -sys->amplitude * omega * omega * cos(omega * t + sys->phase);
+}
+
+double calculate_energy(const SpringSystem *sys, double t) {
+    // Total mechanical energy (kinetic + potential)
+    return 0.5 * sys->spring_constant * sys->amplitude * sys->amplitude;
+}
+
+int main(void) {
+    SpringSystem system = {
+        .mass = 0.5,            // 0.5 kg
+        .spring_constant = 20.0, // 20 N/m
+        .amplitude = 0.1,        // 0.1 m
+        .phase = 0.0             // 0 radians
+    };
+
+    printf("=== SIMPLE HARMONIC MOTION SIMULATOR ===\n");
+    printf("Mass: %.2f kg\n", system.mass);
+    printf("Spring constant: %.2f N/m\n", system.spring_constant);
+    printf("Amplitude: %.3f m\n", system.amplitude);
+    printf("\n");
+
+    double period = calculate_period(&system);
+    double frequency = 1.0 / period;
+    double energy = calculate_energy(&system, 0);
+
+    printf("System properties:\n");
+    printf("  Period: %.4f s\n", period);
+    printf("  Frequency: %.4f Hz\n", frequency);
+    printf("  Total energy: %.6f J\n", energy);
+    printf("\n");
+
+    printf("Motion over one period:\n");
+    printf("  Time(s)  Position(m)  Velocity(m/s)  Accel(m/s²)\n");
+    printf("  -------  -----------  -------------  -----------\n");
+
+    constexpr double TIME_STEP = 0.05;
+    for (double t = 0; t <= period; t += TIME_STEP) {
+        double x = calculate_position(&system, t);
+        double v = calculate_velocity(&system, t);
+        double a = calculate_acceleration(&system, t);
+
+        printf("  %6.3f   %10.6f   %12.6f   %10.6f\n", t, x, v, a);
+    }
+
+    return 0;
+}
+
+Compile: gcc -std=c23 -Wall -lm spring.c -o spring
+
+
+2.8.3 EXERCISE: ELECTRIC FIELD CALCULATION
+───────────────────────────────────────────
+
+Problem: Calculate electric field from point charges.
+
+File: electric_field.c
+
+#include <stdio.h>
+#include <math.h>
+
+constexpr double COULOMB_CONSTANT = 8.99e9;  // N⋅m²/C²
+
+typedef struct {
+    double x, y;  // meters
+} Point2D;
+
+typedef struct {
+    Point2D position;
+    double charge;  // Coulombs
+} PointCharge;
+
+typedef struct {
+    double x, y;  // Electric field components (N/C)
+} ElectricField;
+
+double distance(Point2D p1, Point2D p2) {
+    double dx = p2.x - p1.x;
+    double dy = p2.y - p1.y;
+    return sqrt(dx * dx + dy * dy);
+}
+
+ElectricField calculate_field(Point2D test_point,
+                              const PointCharge *charges,
+                              int num_charges) {
+    ElectricField field = {.x = 0.0, .y = 0.0};
+
+    for (int i = 0; i < num_charges; ++i) {
+        double r = distance(test_point, charges[i].position);
+
+        if (r < 1e-10) {  // Avoid division by zero
+            continue;
+        }
+
+        // Electric field magnitude: E = kq/r²
+        double e_magnitude = COULOMB_CONSTANT * charges[i].charge / (r * r);
+
+        // Direction (unit vector from charge to test point)
+        double dx = test_point.x - charges[i].position.x;
+        double dy = test_point.y - charges[i].position.y;
+
+        // Add components
+        field.x += e_magnitude * (dx / r);
+        field.y += e_magnitude * (dy / r);
+    }
+
+    return field;
+}
+
+double field_magnitude(ElectricField field) {
+    return sqrt(field.x * field.x + field.y * field.y);
+}
+
+int main(void) {
+    // Define point charges
+    PointCharge charges[] = {
+        {.position = {0.0, 0.0}, .charge = 1e-9},   // 1 nC at origin
+        {.position = {1.0, 0.0}, .charge = -1e-9},  // -1 nC at (1, 0)
+        {.position = {0.5, 0.866}, .charge = 1e-9}  // 1 nC at (0.5, √3/2)
+    };
+
+    constexpr int NUM_CHARGES = sizeof(charges) / sizeof(charges[0]);
+
+    printf("=== ELECTRIC FIELD CALCULATOR ===\n");
+    printf("Charges:\n");
+    for (int i = 0; i < NUM_CHARGES; ++i) {
+        printf("  Charge %d: %.2e C at (%.2f, %.2f) m\n",
+               i + 1, charges[i].charge,
+               charges[i].position.x, charges[i].position.y);
+    }
+    printf("\n");
+
+    // Calculate field at various points
+    printf("Electric field at test points:\n");
+    printf("  Point      E_x(N/C)    E_y(N/C)    |E|(N/C)\n");
+    printf("  ---------  ----------  ----------  ----------\n");
+
+    constexpr double test_points[][2] = {
+        {0.5, 0.0},
+        {0.5, 0.5},
+        {0.0, 0.5},
+        {-0.5, 0.0},
+        {0.5, -0.5}
+    };
+
+    constexpr int NUM_TEST_POINTS = sizeof(test_points) / sizeof(test_points[0]);
+
+    for (int i = 0; i < NUM_TEST_POINTS; ++i) {
+        Point2D test_point = {test_points[i][0], test_points[i][1]};
+        ElectricField field = calculate_field(test_point, charges, NUM_CHARGES);
+        double magnitude = field_magnitude(field);
+
+        printf("  (%.1f,%.1f)   %10.2e  %10.2e  %10.2e\n",
+               test_point.x, test_point.y, field.x, field.y, magnitude);
+    }
+
+    return 0;
+}
+
+
+2.8.4 EXERCISE: KINEMATICS - FREE FALL
+───────────────────────────────────────
+
+File: freefall.c
+
+#include <stdio.h>
+#include <math.h>
+
+constexpr double GRAVITY = 9.81;  // m/s²
+
+typedef struct {
+    double height;       // meters
+    double velocity;     // m/s
+    double time;         // seconds
+} FreeFallState;
+
+FreeFallState calculate_freefall(double initial_height, double time) {
+    FreeFallState state;
+    state.time = time;
+    state.velocity = GRAVITY * time;
+    state.height = initial_height - 0.5 * GRAVITY * time * time;
+
+    return state;
+}
+
+double calculate_impact_velocity(double height) {
+    // v = √(2gh)
+    return sqrt(2.0 * GRAVITY * height);
+}
+
+double calculate_impact_time(double height) {
+    // t = √(2h/g)
+    return sqrt(2.0 * height / GRAVITY);
+}
+
+int main(void) {
+    constexpr double INITIAL_HEIGHT = 100.0;  // meters
+
+    printf("=== FREE FALL SIMULATOR ===\n");
+    printf("Initial height: %.1f m\n", INITIAL_HEIGHT);
+    printf("Gravity: %.2f m/s²\n", GRAVITY);
+    printf("\n");
+
+    double impact_time = calculate_impact_time(INITIAL_HEIGHT);
+    double impact_velocity = calculate_impact_velocity(INITIAL_HEIGHT);
+
+    printf("Impact predictions:\n");
+    printf("  Time to impact: %.2f s\n", impact_time);
+    printf("  Impact velocity: %.2f m/s (%.2f km/h)\n",
+           impact_velocity, impact_velocity * 3.6);
+    printf("\n");
+
+    printf("Fall trajectory:\n");
+    printf("  Time(s)  Height(m)  Velocity(m/s)\n");
+    printf("  -------  ---------  -------------\n");
+
+    for (double t = 0; t <= impact_time; t += 0.5) {
+        FreeFallState state = calculate_freefall(INITIAL_HEIGHT, t);
+        if (state.height >= 0) {
+            printf("  %6.2f   %8.2f   %12.2f\n",
+                   state.time, state.height, state.velocity);
+        }
+    }
+
+    return 0;
+}
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║         2.9 INTERDISCIPLINARY EXERCISES - CHEMISTRY & SCIENCE              ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+2.9.1 EXERCISE: IDEAL GAS LAW CALCULATOR
+─────────────────────────────────────────
+
+Problem: PV = nRT calculator for ideal gases.
+
+File: ideal_gas.c
+
+#include <stdio.h>
+
+constexpr double GAS_CONSTANT = 8.314;  // J/(mol⋅K)
+
+typedef struct {
+    double pressure;     // Pascals
+    double volume;       // m³
+    double moles;        // mol
+    double temperature;  // Kelvin
+} GasState;
+
+double calculate_pressure(double volume, double moles, double temperature) {
+    return (moles * GAS_CONSTANT * temperature) / volume;
+}
+
+double calculate_volume(double pressure, double moles, double temperature) {
+    return (moles * GAS_CONSTANT * temperature) / pressure;
+}
+
+double calculate_moles(double pressure, double volume, double temperature) {
+    return (pressure * volume) / (GAS_CONSTANT * temperature);
+}
+
+double calculate_temperature(double pressure, double volume, double moles) {
+    return (pressure * volume) / (moles * GAS_CONSTANT);
+}
+
+double celsius_to_kelvin(double celsius) {
+    return celsius + 273.15;
+}
+
+double kelvin_to_celsius(double kelvin) {
+    return kelvin - 273.15;
+}
+
+int main(void) {
+    printf("=== IDEAL GAS LAW CALCULATOR ===\n");
+    printf("PV = nRT\n");
+    printf("R = %.3f J/(mol⋅K)\n\n", GAS_CONSTANT);
+
+    // Example 1: Calculate pressure
+    printf("Example 1: Calculate pressure\n");
+    GasState gas1 = {
+        .volume = 0.0224,           // 22.4 L = 0.0224 m³
+        .moles = 1.0,
+        .temperature = celsius_to_kelvin(0.0)  // 0°C
+    };
+    gas1.pressure = calculate_pressure(gas1.volume, gas1.moles, gas1.temperature);
+
+    printf("  Volume: %.4f m³ (%.1f L)\n", gas1.volume, gas1.volume * 1000);
+    printf("  Moles: %.2f mol\n", gas1.moles);
+    printf("  Temperature: %.2f K (%.2f °C)\n",
+           gas1.temperature, kelvin_to_celsius(gas1.temperature));
+    printf("  Pressure: %.2f Pa (%.2f atm)\n\n",
+           gas1.pressure, gas1.pressure / 101325.0);
+
+    // Example 2: Calculate volume
+    printf("Example 2: Calculate volume\n");
+    GasState gas2 = {
+        .pressure = 101325.0,       // 1 atm
+        .moles = 2.0,
+        .temperature = celsius_to_kelvin(25.0)  // 25°C
+    };
+    gas2.volume = calculate_volume(gas2.pressure, gas2.moles, gas2.temperature);
+
+    printf("  Pressure: %.2f Pa (%.2f atm)\n",
+           gas2.pressure, gas2.pressure / 101325.0);
+    printf("  Moles: %.2f mol\n", gas2.moles);
+    printf("  Temperature: %.2f K (%.2f °C)\n",
+           gas2.temperature, kelvin_to_celsius(gas2.temperature));
+    printf("  Volume: %.6f m³ (%.2f L)\n\n",
+           gas2.volume, gas2.volume * 1000);
+
+    return 0;
+}
+
+
+2.9.2 EXERCISE: MOLECULAR WEIGHT CALCULATOR
+────────────────────────────────────────────
+
+File: molecular_weight.c
+
+#include <stdio.h>
+#include <string.h>
+
+constexpr double ATOMIC_MASS_H = 1.008;
+constexpr double ATOMIC_MASS_C = 12.011;
+constexpr double ATOMIC_MASS_N = 14.007;
+constexpr double ATOMIC_MASS_O = 15.999;
+constexpr double ATOMIC_MASS_S = 32.06;
+
+typedef struct {
+    char symbol[3];
+    double atomic_mass;
+} Element;
+
+typedef struct {
+    Element element;
+    int count;
+} MolecularComponent;
+
+constexpr Element PERIODIC_TABLE[] = {
+    {"H", ATOMIC_MASS_H},
+    {"C", ATOMIC_MASS_C},
+    {"N", ATOMIC_MASS_N},
+    {"O", ATOMIC_MASS_O},
+    {"S", ATOMIC_MASS_S}
+};
+
+constexpr int NUM_ELEMENTS = sizeof(PERIODIC_TABLE) / sizeof(PERIODIC_TABLE[0]);
+
+double get_atomic_mass(const char *symbol) {
+    for (int i = 0; i < NUM_ELEMENTS; ++i) {
+        if (strcmp(PERIODIC_TABLE[i].symbol, symbol) == 0) {
+            return PERIODIC_TABLE[i].atomic_mass;
+        }
+    }
+    return 0.0;
+}
+
+double calculate_molecular_weight(const MolecularComponent *components,
+                                  int num_components) {
+    double total = 0.0;
+
+    for (int i = 0; i < num_components; ++i) {
+        total += components[i].element.atomic_mass * components[i].count;
+    }
+
+    return total;
+}
+
+int main(void) {
+    printf("=== MOLECULAR WEIGHT CALCULATOR ===\n\n");
+
+    // Water: H₂O
+    printf("Water (H₂O):\n");
+    MolecularComponent water[] = {
+        {{.symbol = "H", .atomic_mass = ATOMIC_MASS_H}, .count = 2},
+        {{.symbol = "O", .atomic_mass = ATOMIC_MASS_O}, .count = 1}
+    };
+    double mw_water = calculate_molecular_weight(water, 2);
+    printf("  Molecular weight: %.3f g/mol\n\n", mw_water);
+
+    // Carbon dioxide: CO₂
+    printf("Carbon Dioxide (CO₂):\n");
+    MolecularComponent co2[] = {
+        {{.symbol = "C", .atomic_mass = ATOMIC_MASS_C}, .count = 1},
+        {{.symbol = "O", .atomic_mass = ATOMIC_MASS_O}, .count = 2}
+    };
+    double mw_co2 = calculate_molecular_weight(co2, 2);
+    printf("  Molecular weight: %.3f g/mol\n\n", mw_co2);
+
+    // Sulfuric acid: H₂SO₄
+    printf("Sulfuric Acid (H₂SO₄):\n");
+    MolecularComponent h2so4[] = {
+        {{.symbol = "H", .atomic_mass = ATOMIC_MASS_H}, .count = 2},
+        {{.symbol = "S", .atomic_mass = ATOMIC_MASS_S}, .count = 1},
+        {{.symbol = "O", .atomic_mass = ATOMIC_MASS_O}, .count = 4}
+    };
+    double mw_h2so4 = calculate_molecular_weight(h2so4, 3);
+    printf("  Molecular weight: %.3f g/mol\n\n", mw_h2so4);
+
+    return 0;
+}
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║              2.10 INTERDISCIPLINARY EXERCISES - ECONOMICS                  ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+C is excellent for financial calculations requiring precision and performance.
+
+2.10.1 EXERCISE: BUSINESS STRENGTH METRICS
+───────────────────────────────────────────
+
+Problem: Calculate key financial ratios to measure business health.
+
+File: business_metrics.c
+
+#include <stdio.h>
+#include <stdbool.h>
+
+typedef struct {
+    double revenue;
+    double cost_of_goods_sold;
+    double operating_expenses;
+    double interest_expense;
+    double tax_rate;  // As decimal (e.g., 0.21 for 21%)
+} IncomeStatement;
+
+typedef struct {
+    double current_assets;
+    double inventory;
+    double current_liabilities;
+    double total_assets;
+    double total_liabilities;
+    double shareholders_equity;
+} BalanceSheet;
+
+typedef struct {
+    double gross_profit_margin;
+    double operating_profit_margin;
+    double net_profit_margin;
+    double current_ratio;
+    double quick_ratio;
+    double debt_to_equity_ratio;
+    double return_on_assets;
+    double return_on_equity;
+} FinancialMetrics;
+
+double calculate_gross_profit(const IncomeStatement *income) {
+    return income->revenue - income->cost_of_goods_sold;
+}
+
+double calculate_operating_income(const IncomeStatement *income) {
+    return calculate_gross_profit(income) - income->operating_expenses;
+}
+
+double calculate_net_income(const IncomeStatement *income) {
+    double operating_income = calculate_operating_income(income);
+    double ebt = operating_income - income->interest_expense;
+    double taxes = ebt * income->tax_rate;
+    return ebt - taxes;
+}
+
+FinancialMetrics calculate_metrics(const IncomeStatement *income,
+                                    const BalanceSheet *balance) {
+    FinancialMetrics metrics = {};
+
+    // Profitability ratios
+    if (income->revenue > 0) {
+        metrics.gross_profit_margin =
+            (calculate_gross_profit(income) / income->revenue) * 100.0;
+        metrics.operating_profit_margin =
+            (calculate_operating_income(income) / income->revenue) * 100.0;
+        metrics.net_profit_margin =
+            (calculate_net_income(income) / income->revenue) * 100.0;
+    }
+
+    // Liquidity ratios
+    if (balance->current_liabilities > 0) {
+        metrics.current_ratio =
+            balance->current_assets / balance->current_liabilities;
+        metrics.quick_ratio =
+            (balance->current_assets - balance->inventory) /
+            balance->current_liabilities;
+    }
+
+    // Leverage ratios
+    if (balance->shareholders_equity > 0) {
+        metrics.debt_to_equity_ratio =
+            balance->total_liabilities / balance->shareholders_equity;
+    }
+
+    // Return ratios
+    if (balance->total_assets > 0) {
+        metrics.return_on_assets =
+            (calculate_net_income(income) / balance->total_assets) * 100.0;
+    }
+
+    if (balance->shareholders_equity > 0) {
+        metrics.return_on_equity =
+            (calculate_net_income(income) / balance->shareholders_equity) * 100.0;
+    }
+
+    return metrics;
+}
+
+void print_income_statement(const IncomeStatement *income) {
+    printf("=== INCOME STATEMENT ===\n");
+    printf("Revenue:                 $%,.2f\n", income->revenue);
+    printf("Cost of Goods Sold:      $%,.2f\n", income->cost_of_goods_sold);
+    printf("Gross Profit:            $%,.2f\n", calculate_gross_profit(income));
+    printf("Operating Expenses:      $%,.2f\n", income->operating_expenses);
+    printf("Operating Income:        $%,.2f\n", calculate_operating_income(income));
+    printf("Interest Expense:        $%,.2f\n", income->interest_expense);
+    printf("Tax Rate:                %.1f%%\n", income->tax_rate * 100.0);
+    printf("Net Income:              $%,.2f\n", calculate_net_income(income));
+    printf("\n");
+}
+
+void print_balance_sheet(const BalanceSheet *balance) {
+    printf("=== BALANCE SHEET ===\n");
+    printf("Current Assets:          $%,.2f\n", balance->current_assets);
+    printf("  (Inventory):           $%,.2f\n", balance->inventory);
+    printf("Total Assets:            $%,.2f\n", balance->total_assets);
+    printf("Current Liabilities:     $%,.2f\n", balance->current_liabilities);
+    printf("Total Liabilities:       $%,.2f\n", balance->total_liabilities);
+    printf("Shareholders' Equity:    $%,.2f\n", balance->shareholders_equity);
+    printf("\n");
+}
+
+void print_financial_metrics(const FinancialMetrics *metrics) {
+    printf("=== FINANCIAL METRICS ===\n");
+    printf("\nProfitability Ratios:\n");
+    printf("  Gross Profit Margin:     %6.2f%%\n", metrics->gross_profit_margin);
+    printf("  Operating Profit Margin: %6.2f%%\n", metrics->operating_profit_margin);
+    printf("  Net Profit Margin:       %6.2f%%\n", metrics->net_profit_margin);
+
+    printf("\nLiquidity Ratios:\n");
+    printf("  Current Ratio:           %6.2f\n", metrics->current_ratio);
+    printf("  Quick Ratio:             %6.2f\n", metrics->quick_ratio);
+
+    printf("\nLeverage Ratios:\n");
+    printf("  Debt-to-Equity Ratio:    %6.2f\n", metrics->debt_to_equity_ratio);
+
+    printf("\nReturn Ratios:\n");
+    printf("  Return on Assets (ROA):  %6.2f%%\n", metrics->return_on_assets);
+    printf("  Return on Equity (ROE):  %6.2f%%\n", metrics->return_on_equity);
+
+    printf("\nBusiness Health Assessment:\n");
+    if (metrics->current_ratio >= 1.5 && metrics->current_ratio <= 3.0) {
+        printf("  ✓ Good liquidity (Current Ratio: %.2f)\n",
+               metrics->current_ratio);
+    } else if (metrics->current_ratio < 1.0) {
+        printf("  ✗ Poor liquidity - may struggle to pay bills\n");
+    }
+
+    if (metrics->net_profit_margin >= 10.0) {
+        printf("  ✓ Strong profitability (%.1f%% net margin)\n",
+               metrics->net_profit_margin);
+    } else if (metrics->net_profit_margin < 5.0) {
+        printf("  ⚠ Low profitability - margins need improvement\n");
+    }
+
+    if (metrics->debt_to_equity_ratio < 1.0) {
+        printf("  ✓ Conservative leverage (D/E: %.2f)\n",
+               metrics->debt_to_equity_ratio);
+    } else if (metrics->debt_to_equity_ratio > 2.0) {
+        printf("  ⚠ High leverage - significant debt burden\n");
+    }
+
+    printf("\n");
+}
+
+int main(void) {
+    // Example company financial data
+    IncomeStatement income = {
+        .revenue = 1000000.0,
+        .cost_of_goods_sold = 600000.0,
+        .operating_expenses = 200000.0,
+        .interest_expense = 20000.0,
+        .tax_rate = 0.21
+    };
+
+    BalanceSheet balance = {
+        .current_assets = 500000.0,
+        .inventory = 150000.0,
+        .current_liabilities = 200000.0,
+        .total_assets = 1500000.0,
+        .total_liabilities = 700000.0,
+        .shareholders_equity = 800000.0
+    };
+
+    printf("╔════════════════════════════════════════════════════════╗\n");
+    printf("║         BUSINESS FINANCIAL ANALYSIS SYSTEM             ║\n");
+    printf("╚════════════════════════════════════════════════════════╝\n\n");
+
+    print_income_statement(&income);
+    print_balance_sheet(&balance);
+
+    FinancialMetrics metrics = calculate_metrics(&income, &balance);
+    print_financial_metrics(&metrics);
+
+    return 0;
+}
+
+Compile: gcc -std=c23 -Wall business_metrics.c -o business_metrics
+
+
+2.10.2 EXERCISE: COMPOUND INTEREST CALCULATOR
+──────────────────────────────────────────────
+
+File: compound_interest.c
+
+#include <stdio.h>
+#include <math.h>
+
+typedef struct {
+    double principal;
+    double annual_rate;
+    int compounds_per_year;
+    int years;
+} Investment;
+
+double calculate_compound_interest(const Investment *inv) {
+    // A = P(1 + r/n)^(nt)
+    double rate_per_period = inv->annual_rate / inv->compounds_per_year;
+    int total_periods = inv->compounds_per_year * inv->years;
+
+    return inv->principal * pow(1.0 + rate_per_period, total_periods);
+}
+
+double calculate_continuous_compound_interest(const Investment *inv) {
+    // A = Pe^(rt)
+    return inv->principal * exp(inv->annual_rate * inv->years);
+}
+
+void print_amortization_schedule(const Investment *inv) {
+    printf("\nYear-by-year growth:\n");
+    printf("  Year  Balance      Interest    Total\n");
+    printf("  ----  ----------   ---------   ----------\n");
+
+    double balance = inv->principal;
+
+    for (int year = 0; year <= inv->years; ++year) {
+        Investment temp = *inv;
+        temp.years = year;
+        double total = calculate_compound_interest(&temp);
+        double interest = total - inv->principal;
+
+        printf("  %4d  $%,9.2f   $%,8.2f   $%,9.2f\n",
+               year, inv->principal, interest, total);
+    }
+}
+
+int main(void) {
+    printf("=== COMPOUND INTEREST CALCULATOR ===\n\n");
+
+    Investment inv = {
+        .principal = 10000.0,
+        .annual_rate = 0.07,  // 7% annual rate
+        .compounds_per_year = 12,  // Monthly compounding
+        .years = 20
+    };
+
+    printf("Investment details:\n");
+    printf("  Principal:        $%,.2f\n", inv.principal);
+    printf("  Annual rate:      %.2f%%\n", inv.annual_rate * 100.0);
+    printf("  Compounding:      %d times per year\n", inv.compounds_per_year);
+    printf("  Investment period: %d years\n\n", inv.years);
+
+    double final_amount = calculate_compound_interest(&inv);
+    double total_interest = final_amount - inv.principal;
+    double continuous_amount = calculate_continuous_compound_interest(&inv);
+
+    printf("Results:\n");
+    printf("  Final amount (compound):   $%,.2f\n", final_amount);
+    printf("  Total interest earned:     $%,.2f\n", total_interest);
+    printf("  Effective yield:           %.2f%%\n",
+           (total_interest / inv.principal) * 100.0);
+    printf("\n");
+    printf("  Final amount (continuous): $%,.2f\n", continuous_amount);
+    printf("  Difference:                $%,.2f\n",
+           continuous_amount - final_amount);
+
+    print_amortization_schedule(&inv);
+
+    return 0;
+}
+
+Compile: gcc -std=c23 -Wall -lm compound_interest.c -o compound_interest
+
+
+2.10.3 EXERCISE: BREAK-EVEN ANALYSIS
+─────────────────────────────────────
+
+File: breakeven.c
+
+#include <stdio.h>
+
+typedef struct {
+    double fixed_costs;
+    double variable_cost_per_unit;
+    double selling_price_per_unit;
+} BusinessModel;
+
+double calculate_breakeven_units(const BusinessModel *model) {
+    double contribution_margin =
+        model->selling_price_per_unit - model->variable_cost_per_unit;
+    return model->fixed_costs / contribution_margin;
+}
+
+double calculate_breakeven_revenue(const BusinessModel *model) {
+    double breakeven_units = calculate_breakeven_units(model);
+    return breakeven_units * model->selling_price_per_unit;
+}
+
+double calculate_profit(const BusinessModel *model, double units_sold) {
+    double revenue = units_sold * model->selling_price_per_unit;
+    double variable_costs = units_sold * model->variable_cost_per_unit;
+    return revenue - model->fixed_costs - variable_costs;
+}
+
+double calculate_margin_of_safety(const BusinessModel *model,
+                                  double expected_units) {
+    double breakeven = calculate_breakeven_units(model);
+    return ((expected_units - breakeven) / expected_units) * 100.0;
+}
+
+int main(void) {
+    printf("=== BREAK-EVEN ANALYSIS ===\n\n");
+
+    BusinessModel model = {
+        .fixed_costs = 50000.0,
+        .variable_cost_per_unit = 20.0,
+        .selling_price_per_unit = 50.0
+    };
+
+    printf("Business Model:\n");
+    printf("  Fixed costs:           $%,.2f\n", model.fixed_costs);
+    printf("  Variable cost/unit:    $%.2f\n", model.variable_cost_per_unit);
+    printf("  Selling price/unit:    $%.2f\n", model.selling_price_per_unit);
+
+    double contribution_margin =
+        model.selling_price_per_unit - model.variable_cost_per_unit;
+    double contribution_margin_ratio =
+        contribution_margin / model.selling_price_per_unit;
+
+    printf("\n");
+    printf("Contribution Analysis:\n");
+    printf("  Contribution margin:   $%.2f per unit\n", contribution_margin);
+    printf("  Contribution margin:   %.1f%%\n",
+           contribution_margin_ratio * 100.0);
+
+    double breakeven_units = calculate_breakeven_units(&model);
+    double breakeven_revenue = calculate_breakeven_revenue(&model);
+
+    printf("\n");
+    printf("Break-Even Point:\n");
+    printf("  Units:                 %.0f units\n", breakeven_units);
+    printf("  Revenue:               $%,.2f\n", breakeven_revenue);
+
+    printf("\n");
+    printf("Profit Analysis at Different Sales Volumes:\n");
+    printf("  Units    Revenue      Costs        Profit       Margin\n");
+    printf("  ------   ----------   ----------   ----------   ------\n");
+
+    constexpr double sales_scenarios[] = {1000, 1500, 2000, 2500, 3000};
+    constexpr int num_scenarios = sizeof(sales_scenarios) /
+                                  sizeof(sales_scenarios[0]);
+
+    for (int i = 0; i < num_scenarios; ++i) {
+        double units = sales_scenarios[i];
+        double revenue = units * model.selling_price_per_unit;
+        double costs = model.fixed_costs +
+                      (units * model.variable_cost_per_unit);
+        double profit = calculate_profit(&model, units);
+        double margin = (profit / revenue) * 100.0;
+
+        printf("  %6.0f   $%,9.2f   $%,9.2f   $%,9.2f   %5.1f%%\n",
+               units, revenue, costs, profit, margin);
+    }
+
+    // Margin of safety
+    constexpr double expected_sales = 3000;
+    double mos = calculate_margin_of_safety(&model, expected_sales);
+    printf("\n");
+    printf("Risk Analysis:\n");
+    printf("  Expected sales:        %.0f units\n", expected_sales);
+    printf("  Margin of safety:      %.1f%%\n", mos);
+    printf("  (Sales can drop %.1f%% before losing money)\n", mos);
+
+    return 0;
+}
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                    2.11 ADDITIONAL ADVANCED EXERCISES                      ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+2.11.1 EXERCISE: BINARY SEARCH TREE (K&R Inspired)
+───────────────────────────────────────────────────
+
+File: binary_tree.c
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+typedef struct TreeNode {
+    char word[50];
+    int count;
+    struct TreeNode *left;
+    struct TreeNode *right;
+} TreeNode;
+
+TreeNode *create_node(const char *word) {
+    TreeNode *node = malloc(sizeof(TreeNode));
+    if (node == nullptr) {
+        return nullptr;
+    }
+
+    strncpy(node->word, word, sizeof(node->word) - 1);
+    node->word[sizeof(node->word) - 1] = '\0';
+    node->count = 1;
+    node->left = nullptr;
+    node->right = nullptr;
+
+    return node;
+}
+
+TreeNode *insert(TreeNode *root, const char *word) {
+    if (root == nullptr) {
+        return create_node(word);
+    }
+
+    int cmp = strcmp(word, root->word);
+
+    if (cmp < 0) {
+        root->left = insert(root->left, word);
+    } else if (cmp > 0) {
+        root->right = insert(root->right, word);
+    } else {
+        root->count++;
+    }
+
+    return root;
+}
+
+void print_tree(const TreeNode *root) {
+    if (root == nullptr) {
+        return;
+    }
+
+    print_tree(root->left);
+    printf("%4d %s\n", root->count, root->word);
+    print_tree(root->right);
+}
+
+void free_tree(TreeNode *root) {
+    if (root == nullptr) {
+        return;
+    }
+
+    free_tree(root->left);
+    free_tree(root->right);
+    free(root);
+}
+
+int main(void) {
+    TreeNode *root = nullptr;
+
+    constexpr char *words[] = {
+        "the", "quick", "brown", "fox", "jumps", "over",
+        "the", "lazy", "dog", "the", "fox", "is", "quick"
+    };
+
+    constexpr int num_words = sizeof(words) / sizeof(words[0]);
+
+    printf("=== BINARY SEARCH TREE - WORD COUNTER ===\n\n");
+    printf("Inserting words...\n");
+
+    for (int i = 0; i < num_words; ++i) {
+        root = insert(root, words[i]);
+    }
+
+    printf("\nWord frequencies (sorted):\n");
+    print_tree(root);
+
+    free_tree(root);
+
+    return 0;
+}
+
+
+2.11.2 EXERCISE: HASH TABLE IMPLEMENTATION
+───────────────────────────────────────────
+
+File: hash_table.c
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+
+constexpr int HASH_TABLE_SIZE = 101;
+
+typedef struct Entry {
+    char *key;
+    int value;
+    struct Entry *next;
+} Entry;
+
+typedef struct {
+    Entry *buckets[HASH_TABLE_SIZE];
+    int size;
+} HashTable;
+
+unsigned int hash(const char *str) {
+    unsigned int hash = 5381;
+    int c;
+
+    while ((c = *str++)) {
+        hash = ((hash << 5) + hash) + c;  // hash * 33 + c
+    }
+
+    return hash % HASH_TABLE_SIZE;
+}
+
+HashTable *create_hash_table(void) {
+    HashTable *table = malloc(sizeof(HashTable));
+    if (table == nullptr) {
+        return nullptr;
+    }
+
+    for (int i = 0; i < HASH_TABLE_SIZE; ++i) {
+        table->buckets[i] = nullptr;
+    }
+    table->size = 0;
+
+    return table;
+}
+
+bool insert(HashTable *table, const char *key, int value) {
+    unsigned int index = hash(key);
+    Entry *entry = table->buckets[index];
+
+    // Check if key already exists
+    while (entry != nullptr) {
+        if (strcmp(entry->key, key) == 0) {
+            entry->value = value;
+            return true;
+        }
+        entry = entry->next;
+    }
+
+    // Create new entry
+    Entry *new_entry = malloc(sizeof(Entry));
+    if (new_entry == nullptr) {
+        return false;
+    }
+
+    new_entry->key = strdup(key);
+    new_entry->value = value;
+    new_entry->next = table->buckets[index];
+    table->buckets[index] = new_entry;
+    table->size++;
+
+    return true;
+}
+
+bool lookup(HashTable *table, const char *key, int *value) {
+    unsigned int index = hash(key);
+    Entry *entry = table->buckets[index];
+
+    while (entry != nullptr) {
+        if (strcmp(entry->key, key) == 0) {
+            *value = entry->value;
+            return true;
+        }
+        entry = entry->next;
+    }
+
+    return false;
+}
+
+void free_hash_table(HashTable *table) {
+    for (int i = 0; i < HASH_TABLE_SIZE; ++i) {
+        Entry *entry = table->buckets[i];
+        while (entry != nullptr) {
+            Entry *temp = entry;
+            entry = entry->next;
+            free(temp->key);
+            free(temp);
+        }
+    }
+    free(table);
+}
+
+int main(void) {
+    printf("=== HASH TABLE IMPLEMENTATION ===\n\n");
+
+    HashTable *table = create_hash_table();
+    if (table == nullptr) {
+        fprintf(stderr, "Failed to create hash table\n");
+        return 1;
+    }
+
+    // Insert some key-value pairs
+    insert(table, "apple", 5);
+    insert(table, "banana", 3);
+    insert(table, "cherry", 7);
+    insert(table, "date", 2);
+
+    printf("Hash table size: %d\n\n", table->size);
+
+    // Lookup values
+    constexpr char *keys[] = {"apple", "banana", "cherry", "date", "elderberry"};
+    constexpr int num_keys = sizeof(keys) / sizeof(keys[0]);
+
+    for (int i = 0; i < num_keys; ++i) {
+        int value;
+        if (lookup(table, keys[i], &value)) {
+            printf("Found: %s = %d\n", keys[i], value);
+        } else {
+            printf("Not found: %s\n", keys[i]);
+        }
+    }
+
+    free_hash_table(table);
+
+    return 0;
+}
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                    2.12 RESOURCES AND FURTHER READING                      ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+BOOKS
+─────
+1. "Modern C" by Jens Gustedt (2025)
+   - Free: https://gustedt.gitlabpages.inria.fr/modern-c/
+   - HAL: https://inria.hal.science/hal-02383654
+   - Print: Manning Publications (ISBN 9781633437777)
+
+2. "The C Programming Language" (2nd Edition) by K&R
+   - Classic reference, updated for C89
+   - Still relevant for understanding C fundamentals
+
+3. "C Programming: A Modern Approach" by K.N. King
+   - Comprehensive coverage of C89, C99, and C11
+
+4. "Expert C Programming" by Peter van der Linden
+   - Deep dives into advanced topics
+
+STANDARDS
+─────────
+- C23 (ISO/IEC 9899:2023): Latest standard
+- C17 (ISO/IEC 9899:2018): Bug-fix update to C11
+- C11 (ISO/IEC 9899:2011): Added threads, atomics, Unicode
+- C99 (ISO/IEC 9899:1999): Added VLAs, designated initializers
+
+ONLINE RESOURCES
+────────────────
+- C23 Features: https://en.cppreference.com/w/c/23
+- Modern C Book Site: https://modernc.gforge.inria.fr/
+- C Standard Draft: https://www.open-std.org/jtc1/sc22/wg14/
+
+COMPILER SUPPORT FOR C23
+─────────────────────────
+- GCC 13+: Partial C23 support
+- Clang 16+: Partial C23 support
+- MSVC: Limited C23 support (check latest version)
+
+PRACTICE PLATFORMS
+──────────────────
+- Project Euler: Mathematical programming challenges
+- HackerRank: C programming track
+- LeetCode: Algorithm problems in C
+- Advent of Code: Annual programming challenges
+
+
+═══════════════════════════════════════════════════════════════════════════
+                           END OF PART II v2.0
+═══════════════════════════════════════════════════════════════════════════
