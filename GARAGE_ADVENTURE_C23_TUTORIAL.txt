@@ -1,0 +1,1394 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║     ADVANCED GARAGE ADVENTURE - C23 COMPREHENSIVE TUTORIAL & GUIDE        ║
+║                        Learning Modern C Through Gaming                    ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+═══════════════════════════════════════════════════════════════════════════
+TABLE OF CONTENTS
+═══════════════════════════════════════════════════════════════════════════
+
+1. INTRODUCTION & COMPILATION
+2. C23 FEATURES DEMONSTRATED
+3. CODE ARCHITECTURE OVERVIEW
+4. KEY ALGORITHMS EXPLAINED
+   4.1 A* Pathfinding Algorithm
+   4.2 Dijkstra's Shortest Path
+   4.3 Physics Calculations
+5. EXTENDING THE GAME
+   5.1 Adding New Rooms
+   5.2 Adding Vehicle Types
+   5.3 Implementing New Commands
+   5.4 Adding Multiplayer Features
+6. ADVANCED C23 ENHANCEMENTS
+   7. EXERCISES & CHALLENGES
+8. TROUBLESHOOTING & DEBUGGING
+
+
+═══════════════════════════════════════════════════════════════════════════
+1. INTRODUCTION & COMPILATION
+═══════════════════════════════════════════════════════════════════════════
+
+This tutorial accompanies the advanced_garage_adventure_c23.c source code,
+a comprehensive text adventure game that demonstrates modern C programming
+techniques, particularly those introduced in the C23 standard.
+
+COMPILATION INSTRUCTIONS
+─────────────────────────
+
+Option 1: Using C2x (Draft C23 - Most Compatible)
+    gcc -std=c2x -Wall -O2 advanced_garage_adventure_c23.c -o garage_adventure -lm
+
+Option 2: Using C23 (When Available)
+    gcc -std=c23 -Wall -O2 advanced_garage_adventure_c23.c -o garage_adventure -lm
+
+Option 3: With Extra Warnings (Recommended for Learning)
+    gcc -std=c2x -Wall -Wextra -Wpedantic -O2 advanced_garage_adventure_c23.c \
+        -o garage_adventure -lm
+
+Option 4: Debug Build
+    gcc -std=c2x -Wall -g -O0 advanced_garage_adventure_c23.c \
+        -o garage_adventure_debug -lm
+
+COMPILER FLAGS EXPLAINED:
+    -std=c2x        Use C23 draft standard features
+    -Wall           Enable all common warnings
+    -Wextra         Enable extra warnings
+    -Wpedantic      Enforce ISO C standards strictly
+    -O2             Optimization level 2 (balanced)
+    -O0             No optimization (for debugging)
+    -g              Include debugging symbols (for gdb)
+    -lm             Link math library (MUST be at end!)
+
+RUNNING THE GAME
+────────────────
+
+    ./garage_adventure
+
+The game will start at the Garage Entrance. Type 'help' to see available
+commands.
+
+
+═══════════════════════════════════════════════════════════════════════════
+2. C23 FEATURES DEMONSTRATED
+═══════════════════════════════════════════════════════════════════════════
+
+This program showcases numerous C23 features that represent modern C
+programming practices:
+
+2.1 NULLPTR - TYPE-SAFE NULL POINTER
+─────────────────────────────────────
+
+Traditional C (pre-C23):
+    sqlite3 *db = NULL;
+    if (db == NULL) { /* ... */ }
+
+C23 with nullptr:
+    sqlite3 *db = nullptr;        // Line 353: game->current_vehicle = nullptr;
+    if (db == nullptr) { /* ... */ }
+
+Location in code: Lines 353, 804, 822
+Benefits:
+  ✓ Type-safe (always a pointer type)
+  ✓ No ambiguity in function overloading contexts
+  ✓ More readable and explicit intent
+
+
+2.2 CONSTEXPR - COMPILE-TIME CONSTANTS
+───────────────────────────────────────
+
+C23 constexpr declarations:
+
+    constexpr int MAX_ROOMS = 20;                    // Line 25
+    constexpr int MAX_INPUT = 256;                   // Line 26
+    constexpr double GRAVITY = 9.81;                 // Line 32
+    constexpr double PI = 3.14159265358979323846;    // Line 33
+
+Advantages over #define:
+  ✓ Type-checked by compiler
+  ✓ Respects scope rules (not global like macros)
+  ✓ Visible in debugger with type information
+  ✓ Can be used in array sizes: char buffer[MAX_INPUT];
+  ✓ No text substitution issues
+
+Traditional approach (problems):
+    #define MAX_ROOMS 20    // No type safety, global scope, harder to debug
+
+
+2.3 BUILT-IN BOOL TYPE
+───────────────────────
+
+Pre-C23:
+    #include <stdbool.h>    // Required!
+    bool flag = true;
+
+C23:
+    bool flag = true;       // Built-in, no include needed!
+
+Location in code:
+  - Line 20: #include <stdbool.h> (still works for compatibility)
+  - Lines 134, 140, 349, etc.: bool used throughout
+  - true/false are now keywords, not macros
+
+
+2.4 EMPTY INITIALIZATION WITH {}
+─────────────────────────────────
+
+C23 allows empty braces for zero-initialization:
+
+    GameState game = {};              // Line 346: All fields zeroed
+
+This is safer than:
+    GameState game;                   // Uninitialized! Dangerous!
+
+Or verbose initialization:
+    GameState game = {0};             // Works but less clear
+
+Benefits:
+  ✓ All struct members initialized to zero
+  ✓ Pointers initialized to nullptr
+  ✓ Clear intent: "start fresh"
+  ✓ Works with nested structures
+
+
+2.5 DESIGNATED INITIALIZERS (C99+, Enhanced in C23)
+────────────────────────────────────────────────────
+
+Beautiful, self-documenting struct initialization:
+
+    rooms[ROOM_GARAGE_ENTRANCE] = (Room){
+        .id = ROOM_GARAGE_ENTRANCE,
+        .name = "Garage Entrance",
+        .description = "You stand at the entrance...",
+        .connections = {
+            [DIR_NORTH] = ROOM_MAIN_GARAGE,
+            [DIR_SOUTH] = ROOM_GARAGE_ENTRANCE,
+            [DIR_EAST] = ROOM_OFFICE,
+            [DIR_WEST] = ROOM_GARAGE_ENTRANCE
+        },
+        .coordinates = {.x = 0, .y = 0},
+        .has_vehicle_access = true,
+        .has_computer = false
+    };                                    // Lines 377-391
+
+Benefits:
+  ✓ Order-independent
+  ✓ Self-documenting
+  ✓ Missing fields automatically zero-initialized
+  ✓ Array designated initializers: [DIR_NORTH] = value
+
+
+2.6 COMPOUND LITERALS
+──────────────────────
+
+Creating temporary structures inline:
+
+    *cmd = (Command){
+        .verb = VERB_UNKNOWN,
+        .object = "",
+        .target = "",
+        .direction = DIR_COUNT
+    };                                    // Lines 613-617
+
+Traditional approach would require:
+    Command temp;
+    temp.verb = VERB_UNKNOWN;
+    temp.object[0] = '\0';
+    temp.target[0] = '\0';
+    temp.direction = DIR_COUNT;
+    *cmd = temp;
+
+
+2.7 ENHANCED ENUMS
+──────────────────
+
+Modern enum usage with explicit values:
+
+    typedef enum {
+        ROOM_GARAGE_ENTRANCE,    // 0
+        ROOM_MAIN_GARAGE,        // 1
+        ROOM_WORKSHOP,           // 2
+        ...
+        ROOM_COUNT               // Total count
+    } RoomID;                    // Lines 47-57
+
+This pattern provides:
+  ✓ Type safety
+  ✓ Automatic counting with ROOM_COUNT
+  ✓ Use in array indexing: rooms[ROOM_GARAGE_ENTRANCE]
+
+
+═══════════════════════════════════════════════════════════════════════════
+3. CODE ARCHITECTURE OVERVIEW
+═══════════════════════════════════════════════════════════════════════════
+
+The program follows a modular, layered architecture:
+
+ARCHITECTURE LAYERS
+───────────────────
+
+    ┌─────────────────────────────────────────┐
+    │         USER INTERFACE LAYER            │
+    │   (Command parsing, text output)        │
+    ├─────────────────────────────────────────┤
+    │         GAME LOGIC LAYER                │
+    │   (Command execution, state mgmt)       │
+    ├─────────────────────────────────────────┤
+    │         ALGORITHM LAYER                 │
+    │   (A*, Dijkstra, Physics)               │
+    ├─────────────────────────────────────────┤
+    │         DATA STRUCTURE LAYER            │
+    │   (Rooms, Vehicles, Inventory)          │
+    └─────────────────────────────────────────┘
+
+
+KEY DATA STRUCTURES
+───────────────────
+
+1. GameState (Lines 145-152)
+   - Master struct holding entire game state
+   - Contains rooms array, current position, garage inventory
+   - Single source of truth for game world
+
+2. Room (Lines 116-123)
+   - Represents a location in the game
+   - Has connections to other rooms (graph structure)
+   - Coordinates for pathfinding algorithms
+
+3. Vehicle (Lines 93-103)
+   - Physics properties (mass, drag, power)
+   - Dynamic part system
+   - Performance calculations
+
+4. GarageInventory (Lines 105-110)
+   - Collection of vehicles
+   - Available parts
+   - Money/resources
+
+5. Command (Lines 125-130)
+   - Parsed user input
+   - Verb-object-target pattern
+
+
+PROGRAM FLOW
+────────────
+
+    main()
+      │
+      ├──> init_game()
+      │      ├──> init_rooms()
+      │      └──> init_garage()
+      │
+      └──> game_loop()
+             │
+             └──> [REPEAT]
+                    ├──> Read input (fgets)
+                    ├──> parse_command()
+                    ├──> execute_command()
+                    │      └──> cmd_XXX() functions
+                    └──> [UNTIL quit]
+
+
+═══════════════════════════════════════════════════════════════════════════
+4. KEY ALGORITHMS EXPLAINED
+═══════════════════════════════════════════════════════════════════════════
+
+4.1 A* PATHFINDING ALGORITHM
+─────────────────────────────
+
+Location: Lines 1121-1216
+
+A* (pronounced "A-star") is an optimal pathfinding algorithm that finds the
+shortest path between two points. It's used extensively in games, robotics,
+and navigation systems.
+
+ALGORITHM OVERVIEW:
+
+A* uses a heuristic to intelligently explore the most promising paths first.
+It maintains two scores for each node:
+
+  g_score: Actual cost from start to this node
+  f_score: g_score + heuristic (estimated cost to goal)
+
+PSEUDOCODE:
+
+    1. Start with the initial node in open set
+    2. While open set is not empty:
+       a. Pick node with lowest f_score
+       b. If it's the goal, reconstruct path and return
+       c. Move it to closed set (visited)
+       d. For each neighbor:
+          - Calculate tentative g_score
+          - If better than previous, update scores
+    3. If open set becomes empty, no path exists
+
+KEY INSIGHT: The heuristic (Euclidean distance) ensures we explore nodes
+that are closer to the goal first, making it much faster than Dijkstra.
+
+IMPLEMENTATION DETAILS:
+
+    double heuristic_distance(Point2D a, Point2D b) {
+        double dx = a.x - b.x;
+        double dy = a.y - b.y;
+        return sqrt(dx * dx + dy * dy);     // Euclidean distance
+    }
+
+The heuristic MUST be "admissible" (never overestimate actual cost) for
+A* to guarantee optimal paths.
+
+COMPLEXITY:
+  Time: O(b^d) where b=branching factor, d=depth
+  Space: O(b^d) for storing nodes
+  In practice: Much faster than Dijkstra for large graphs
+
+
+4.2 DIJKSTRA'S SHORTEST PATH ALGORITHM
+───────────────────────────────────────
+
+Location: Lines 1059-1118
+
+Dijkstra's algorithm finds shortest paths from a start node to all other
+nodes. It's guaranteed to find the optimal path but explores more nodes
+than A*.
+
+ALGORITHM OVERVIEW:
+
+    1. Initialize all distances to infinity, except start (0)
+    2. Mark all nodes as unvisited
+    3. While unvisited nodes remain:
+       a. Pick unvisited node with smallest distance
+       b. For each neighbor:
+          - Calculate distance through current node
+          - If shorter than known distance, update it
+       c. Mark current node as visited
+    4. Return distances and paths
+
+DIFFERENCE FROM A*:
+  - Dijkstra: No heuristic, explores uniformly
+  - A*: Uses heuristic to guide search toward goal
+
+USE CASE in this program:
+  Finding all shortest paths from one room (could be used for "map" command)
+
+COMPLEXITY:
+  Time: O(V² + E) with simple array, O((V + E) log V) with heap
+  Space: O(V) where V=vertices, E=edges
+
+
+4.3 PHYSICS CALCULATIONS
+─────────────────────────
+
+The game implements realistic vehicle physics calculations:
+
+A. DRAG FORCE (Line 1032)
+──────────────────────────
+
+Formula: F_drag = 0.5 × ρ × Cd × A × v²
+
+Where:
+  ρ (rho)  = Air density (1.225 kg/m³ at sea level)
+  Cd       = Drag coefficient (0.25-0.42 for vehicles)
+  A        = Frontal area (m²)
+  v        = Velocity (m/s)
+
+    double calculate_drag_force(const Vehicle *v, double velocity) {
+        return 0.5 * AIR_DENSITY * v->drag_coefficient *
+               v->frontal_area * velocity * velocity;
+    }
+
+Real-world examples:
+  - Sports car (Cd=0.28): Low drag, high top speed
+  - Truck (Cd=0.42): High drag, lower efficiency
+  - Race car (Cd=0.25): Minimal drag, maximum speed
+
+B. TERMINAL VELOCITY (Line 1009)
+─────────────────────────────────
+
+Terminal velocity occurs when drag force equals propulsive force.
+
+    v_terminal = ∛(Power / (0.5 × ρ × Cd × A))
+
+Implementation uses cbrt() (cube root) from math.h.
+
+C. BRAKING DISTANCE (Line 1022)
+────────────────────────────────
+
+From kinematic equations: d = v² / (2a)
+
+Assuming good brakes: a = 0.8 × g ≈ 7.85 m/s²
+
+    double calculate_braking_distance(const Vehicle *v, double initial_speed) {
+        double braking_decel = 0.8 * GRAVITY;
+        return (initial_speed * initial_speed) / (2.0 * braking_decel);
+    }
+
+Example: From 60 mph (26.8 m/s):
+  d = 26.8² / (2 × 7.85) = 45.7 meters (150 feet)
+
+D. LAP TIME CALCULATION (Line 1043)
+────────────────────────────────────
+
+Simplified model accounting for:
+  - Straight sections (90% max speed)
+  - Turn sections (60% max speed)
+  - Acceleration penalty out of turns
+
+    lap_time = straight_time + turn_time + acceleration_penalty
+
+This is a simplified model. Real racing simulators use:
+  - Tire grip models
+  - Downforce calculations
+  - Weight transfer dynamics
+  - Gear shift optimization
+
+
+═══════════════════════════════════════════════════════════════════════════
+5. EXTENDING THE GAME
+═══════════════════════════════════════════════════════════════════════════
+
+5.1 ADDING NEW ROOMS
+────────────────────
+
+Follow these steps to add a new room:
+
+STEP 1: Add enum value (Lines 47-57)
+
+    typedef enum {
+        ROOM_GARAGE_ENTRANCE,
+        ROOM_MAIN_GARAGE,
+        // ... existing rooms ...
+        ROOM_DYNO_ROOM,        // NEW ROOM
+        ROOM_COUNT             // Keep this last!
+    } RoomID;
+
+STEP 2: Initialize room in init_rooms() (around line 377)
+
+    rooms[ROOM_DYNO_ROOM] = (Room){
+        .id = ROOM_DYNO_ROOM,
+        .name = "Dynamometer Room",
+        .description = "A high-tech room with a dynamometer for measuring "
+                      "precise engine output. Digital displays show real-time "
+                      "power curves and torque measurements.",
+        .connections = {
+            [DIR_NORTH] = ROOM_DYNO_ROOM,        // Can't go north
+            [DIR_SOUTH] = ROOM_TESTING_TRACK,    // Connect to existing room
+            [DIR_EAST] = ROOM_DYNO_ROOM,         // Can't go east
+            [DIR_WEST] = ROOM_DYNO_ROOM          // Can't go west
+        },
+        .coordinates = {.x = 20, .y = 30},       // For pathfinding
+        .has_vehicle_access = true,              // Can bring vehicles
+        .has_computer = true                     // Has terminal
+    };
+
+STEP 3: Connect from existing rooms
+
+Find the room you want to connect from (e.g., ROOM_TESTING_TRACK) and
+update its connections:
+
+    rooms[ROOM_TESTING_TRACK] = (Room){
+        // ... existing fields ...
+        .connections = {
+            [DIR_NORTH] = ROOM_DYNO_ROOM,        // NEW CONNECTION
+            [DIR_SOUTH] = ROOM_PAINT_BOOTH,
+            [DIR_EAST] = ROOM_TESTING_TRACK,
+            [DIR_WEST] = ROOM_TESTING_TRACK
+        },
+        // ... rest of initialization ...
+    };
+
+STEP 4: Add special functionality (optional)
+
+If your room has special features, add them to relevant command functions.
+For example, add dyno testing to cmd_calculate():
+
+    void cmd_calculate(GameState *game, const char *calc_type) {
+        Room *room = &game->rooms[game->current_room];
+
+        // Add special dyno room features
+        if (game->current_room == ROOM_DYNO_ROOM) {
+            printf("DYNAMOMETER MODE: Extra precision available!\n");
+            // Perform more detailed calculations...
+        }
+
+        // ... rest of function ...
+    }
+
+
+5.2 ADDING NEW VEHICLE TYPES
+─────────────────────────────
+
+STEP 1: Add to VehicleType enum (Lines 65-71)
+
+    typedef enum {
+        VEHICLE_NONE,
+        VEHICLE_SPORTS_CAR,
+        VEHICLE_TRUCK,
+        VEHICLE_MOTORCYCLE,
+        VEHICLE_RACE_CAR,
+        VEHICLE_CLASSIC_CAR,
+        VEHICLE_ELECTRIC_CAR    // NEW TYPE
+    } VehicleType;
+
+STEP 2: Update vehicle_type_to_string() (Lines 1245-1254)
+
+    const char* vehicle_type_to_string(VehicleType type) {
+        switch (type) {
+            case VEHICLE_SPORTS_CAR: return "Sports Car";
+            case VEHICLE_TRUCK: return "Truck";
+            case VEHICLE_MOTORCYCLE: return "Motorcycle";
+            case VEHICLE_RACE_CAR: return "Race Car";
+            case VEHICLE_CLASSIC_CAR: return "Classic Car";
+            case VEHICLE_ELECTRIC_CAR: return "Electric Car";  // NEW
+            default: return "Unknown";
+        }
+    }
+
+STEP 3: Add vehicle instance in init_garage() (around line 528)
+
+    garage->vehicles[3] = (Vehicle){
+        .name = "Tesla Roadster",
+        .type = VEHICLE_ELECTRIC_CAR,
+        .mass = 1850.0,                 // kg
+        .engine_power = 620.0,          // HP equivalent
+        .drag_coefficient = 0.23,       // Very low drag
+        .frontal_area = 2.0,            // m²
+        .max_speed = 89.4,              // m/s (~200 mph)
+        .acceleration = 18.0,           // Instant torque!
+        .parts_count = 0
+    };
+
+    garage->vehicle_count = 4;  // Update count!
+
+STEP 4: Add electric-specific calculations (optional)
+
+    double calculate_battery_range(const Vehicle *v) {
+        if (v->type != VEHICLE_ELECTRIC_CAR) {
+            return -1;  // Not applicable
+        }
+
+        // Simplified: 100 kWh battery, efficiency based on drag
+        constexpr double BATTERY_CAPACITY = 100.0;  // kWh
+        double power_at_highway = calculate_power_required(v, 31.3);  // 70mph
+        double hours_at_highway = BATTERY_CAPACITY / (power_at_highway / 1000.0);
+        return hours_at_highway * 31.3;  // Distance in meters
+    }
+
+
+5.3 IMPLEMENTING NEW COMMANDS
+──────────────────────────────
+
+Let's add a "TUNE" command that optimizes vehicle performance.
+
+STEP 1: Add verb to enum (Lines 87-103)
+
+    typedef enum {
+        VERB_UNKNOWN,
+        VERB_GO,
+        VERB_LOOK,
+        // ... existing verbs ...
+        VERB_TUNE,        // NEW VERB
+        VERB_HELP,
+        VERB_QUIT
+    } Verb;
+
+STEP 2: Add parsing in parse_command() (around line 623)
+
+    // In the verb parsing section:
+    else if (strcmp(token, "tune") == 0) {
+        cmd->verb = VERB_TUNE;
+    }
+
+STEP 3: Add case in execute_command() (around line 674)
+
+    void execute_command(GameState *game, const Command *cmd) {
+        switch (cmd->verb) {
+            case VERB_GO:
+                cmd_go(game, cmd->direction);
+                break;
+            // ... existing cases ...
+            case VERB_TUNE:
+                cmd_tune(game, cmd->object);
+                break;
+            // ... rest of cases ...
+        }
+    }
+
+STEP 4: Implement the command function
+
+    void cmd_tune(GameState *game, const char *vehicle_name) {
+        // Must be in workshop
+        if (game->current_room != ROOM_WORKSHOP) {
+            printf("You need to be in the Workshop to tune vehicles.\n");
+            return;
+        }
+
+        if (game->garage.vehicle_count == 0) {
+            printf("No vehicles available to tune.\n");
+            return;
+        }
+
+        // Find vehicle
+        Vehicle *v = nullptr;
+        if (strlen(vehicle_name) == 0) {
+            v = &game->garage.vehicles[0];  // Default to first
+        } else {
+            for (int i = 0; i < game->garage.vehicle_count; i++) {
+                char name_lower[MAX_NAME];
+                strncpy(name_lower, game->garage.vehicles[i].name, MAX_NAME - 1);
+                to_lowercase(name_lower);
+
+                if (strstr(name_lower, vehicle_name) != nullptr) {
+                    v = &game->garage.vehicles[i];
+                    break;
+                }
+            }
+        }
+
+        if (v == nullptr) {
+            printf("Vehicle not found.\n");
+            return;
+        }
+
+        // Perform tuning
+        printf("\n=== TUNING %s ===\n", v->name);
+        printf("Optimizing engine mapping...\n");
+        printf("Adjusting fuel mixture...\n");
+        printf("Calibrating ignition timing...\n\n");
+
+        constexpr int TUNE_COST = 1000;
+        constexpr double TUNE_BOOST = 1.05;  // 5% improvement
+
+        if (game->garage.money < TUNE_COST) {
+            printf("Insufficient funds! Need $%d\n", TUNE_COST);
+            return;
+        }
+
+        // Apply tune
+        v->engine_power *= TUNE_BOOST;
+        v->acceleration *= TUNE_BOOST;
+        game->garage.money -= TUNE_COST;
+
+        printf("Tune complete!\n");
+        printf("New power: %.0f HP (+5%%)\n", v->engine_power);
+        printf("Cost: $%d\n", TUNE_COST);
+        printf("Remaining money: $%d\n", game->garage.money);
+    }
+
+STEP 5: Add to help text (in cmd_help(), around line 946)
+
+    printf("\nVehicle Management:\n");
+    printf("  install <part>     - Install a part on a vehicle\n");
+    printf("  tune <vehicle>     - Tune vehicle for better performance ($1000)\n");
+    printf("  calculate <type>   - Perform physics calculations\n");
+
+
+5.4 ADDING MULTIPLAYER FEATURES (Advanced)
+───────────────────────────────────────────
+
+To add basic turn-based multiplayer:
+
+STEP 1: Extend GameState
+
+    typedef struct {
+        Room rooms[MAX_ROOMS];
+        RoomID current_room;
+        GarageInventory garage;
+        Vehicle *current_vehicle;
+        bool running;
+        int moves_count;
+
+        // NEW MULTIPLAYER FIELDS
+        int current_player;
+        int num_players;
+        GarageInventory player_garages[4];  // Max 4 players
+        RoomID player_positions[4];
+        char player_names[4][MAX_NAME];
+    } GameState;
+
+STEP 2: Add player management commands
+
+    void cmd_switch_player(GameState *game) {
+        game->current_player = (game->current_player + 1) % game->num_players;
+        game->current_room = game->player_positions[game->current_player];
+        game->garage = game->player_garages[game->current_player];
+
+        printf("\n=== NOW PLAYING: %s ===\n",
+               game->player_names[game->current_player]);
+        cmd_look(game);
+    }
+
+STEP 3: Add competitive elements
+
+    void cmd_race(GameState *game) {
+        if (game->current_room != ROOM_TESTING_TRACK) {
+            printf("You must be at the Testing Track to race.\n");
+            return;
+        }
+
+        printf("\n=== RACE RESULTS ===\n");
+        for (int i = 0; i < game->num_players; i++) {
+            Vehicle *v = &game->player_garages[i].vehicles[0];
+            double lap_time = calculate_lap_time(v, 5000.0, 12);
+            printf("Player %d (%s): %.2f seconds\n",
+                   i + 1, game->player_names[i], lap_time);
+        }
+    }
+
+
+═══════════════════════════════════════════════════════════════════════════
+6. ADVANCED C23 ENHANCEMENTS
+═══════════════════════════════════════════════════════════════════════════
+
+6.1 USING [[ATTRIBUTES]] FOR BETTER CODE QUALITY
+─────────────────────────────────────────────────
+
+C23 attributes provide metadata to the compiler for optimization and
+safety checks.
+
+A. [[nodiscard]] - Ensure Return Values Are Checked
+────────────────────────────────────────────────────
+
+Add to functions where ignoring return value is dangerous:
+
+    [[nodiscard]] bool parse_command(const char *input, Command *cmd) {
+        // ... implementation ...
+    }
+
+Now the compiler warns if you do:
+    parse_command(input, &cmd);  // WARNING: return value ignored
+
+This is critical for error checking:
+
+    [[nodiscard]] int load_game(GameState *game, const char *filename) {
+        FILE *f = fopen(filename, "rb");
+        if (f == nullptr) {
+            return -1;  // Error
+        }
+        // ... load game ...
+        fclose(f);
+        return 0;  // Success
+    }
+
+    // Good usage:
+    if (load_game(&game, "save.dat") != 0) {
+        printf("Failed to load game!\n");
+    }
+
+    // Bad usage (compiler warning):
+    load_game(&game, "save.dat");  // What if it failed?
+
+
+B. [[maybe_unused]] - Suppress Warnings for Conditional Code
+─────────────────────────────────────────────────────────────
+
+Useful for parameters used only in debug builds:
+
+    void debug_room([[maybe_unused]] const Room *room) {
+        #ifdef DEBUG
+            printf("Room: %s at (%.1f, %.1f)\n",
+                   room->name, room->coordinates.x, room->coordinates.y);
+        #endif
+        // No warning if DEBUG not defined
+    }
+
+
+C. [[deprecated]] - Mark Old Functions
+───────────────────────────────────────
+
+    [[deprecated("Use cmd_navigate() instead")]]
+    void cmd_goto(GameState *game, const char *destination) {
+        cmd_navigate(game, destination);
+    }
+
+Compiler will warn users to update their code.
+
+
+D. [[fallthrough]] - Intentional Switch Fallthrough
+────────────────────────────────────────────────────
+
+    switch (vehicle_type) {
+        case VEHICLE_RACE_CAR:
+            printf("Racing performance!\n");
+            [[fallthrough]];
+        case VEHICLE_SPORTS_CAR:
+            printf("High performance vehicle\n");
+            break;
+        case VEHICLE_TRUCK:
+            printf("Utility vehicle\n");
+            break;
+    }
+
+
+6.2 USING TYPEOF FOR GENERIC MACROS
+────────────────────────────────────
+
+C23's typeof allows truly generic macros:
+
+    #define SWAP(a, b) do { \
+        typeof(a) temp = (a); \
+        (a) = (b); \
+        (b) = temp; \
+    } while(0)
+
+    // Usage:
+    int x = 5, y = 10;
+    SWAP(x, y);  // x=10, y=5
+
+    double p = 3.14, q = 2.71;
+    SWAP(p, q);  // Works with any type!
+
+Generic MIN/MAX macros:
+
+    #define MIN(a, b) ({ \
+        typeof(a) _a = (a); \
+        typeof(b) _b = (b); \
+        _a < _b ? _a : _b; \
+    })
+
+    #define MAX(a, b) ({ \
+        typeof(a) _a = (a); \
+        typeof(b) _b = (b); \
+        _a > _b ? _a : _b; \
+    })
+
+
+6.3 STATIC ASSERTIONS FOR COMPILE-TIME CHECKS
+──────────────────────────────────────────────
+
+Ensure assumptions about sizes and values at compile time:
+
+    // After type definitions:
+    _Static_assert(sizeof(Vehicle) < 5000,
+                   "Vehicle struct too large - optimize!");
+
+    _Static_assert(MAX_ROOMS <= 100,
+                   "Too many rooms - pathfinding will be slow");
+
+    _Static_assert(sizeof(RoomID) == sizeof(int),
+                   "RoomID must be same size as int for array indexing");
+
+    // C23: Message is optional
+    _Static_assert(sizeof(void*) == 8);  // Ensure 64-bit platform
+
+These catch errors at compile time instead of runtime!
+
+
+6.4 ENHANCED BINARY LITERALS FOR FLAGS
+───────────────────────────────────────
+
+C23 supports binary literals (0b prefix) and digit separators:
+
+    typedef enum {
+        ROOM_FLAG_NONE         = 0b0000'0000,
+        ROOM_FLAG_LOCKED       = 0b0000'0001,
+        ROOM_FLAG_DARK         = 0b0000'0010,
+        ROOM_FLAG_DANGEROUS    = 0b0000'0100,
+        ROOM_FLAG_VEHICLE_OK   = 0b0000'1000,
+        ROOM_FLAG_COMPUTER     = 0b0001'0000,
+        ROOM_FLAG_STORAGE      = 0b0010'0000,
+        ROOM_FLAG_WORKSHOP     = 0b0100'0000,
+        ROOM_FLAG_OUTDOOR      = 0b1000'0000
+    } RoomFlags;
+
+    // Usage:
+    unsigned char room_flags = ROOM_FLAG_VEHICLE_OK | ROOM_FLAG_WORKSHOP;
+
+    if (room_flags & ROOM_FLAG_DARK) {
+        printf("It's dark. You need a flashlight.\n");
+    }
+
+    // Print binary:
+    printf("Flags: %#b\n", room_flags);  // Output: 0b1001000
+
+
+6.5 MEMSET_EXPLICIT FOR SECURITY
+─────────────────────────────────
+
+When handling sensitive data, use memset_explicit() which cannot be
+optimized away:
+
+    void handle_password(void) {
+        char password[256];
+        get_user_password(password, sizeof(password));
+
+        authenticate(password);
+
+        // Regular memset might be optimized away:
+        // memset(password, 0, sizeof(password));  // May not execute!
+
+        // C23: Guaranteed to execute
+        memset_explicit(password, 0, sizeof(password));
+    }
+
+This is critical for security-sensitive applications.
+
+
+6.6 TYPE GENERIC SELECTION WITH _Generic
+─────────────────────────────────────────
+
+Create functions that work with multiple types:
+
+    #define PRINT_VAR(x) _Generic((x), \
+        int: printf("%d", x), \
+        long: printf("%ld", x), \
+        float: printf("%.2f", x), \
+        double: printf("%.4f", x), \
+        char*: printf("%s", x), \
+        const char*: printf("%s", x), \
+        default: printf("<unprintable>") \
+    )
+
+    // Usage:
+    int age = 25;
+    double speed = 89.5;
+    const char *name = "Lightning GT";
+
+    PRINT_VAR(age);      // Calls printf("%d", age)
+    PRINT_VAR(speed);    // Calls printf("%.4f", speed)
+    PRINT_VAR(name);     // Calls printf("%s", name)
+
+Apply to game:
+
+    #define SERIALIZE(val, file) _Generic((val), \
+        int: fwrite(&val, sizeof(int), 1, file), \
+        double: fwrite(&val, sizeof(double), 1, file), \
+        Vehicle: fwrite(&val, sizeof(Vehicle), 1, file) \
+    )
+
+
+═══════════════════════════════════════════════════════════════════════════
+7. EXERCISES & CHALLENGES
+═══════════════════════════════════════════════════════════════════════════
+
+7.1 BEGINNER EXERCISES
+──────────────────────
+
+1. Add a "STATUS" Command
+   Display current room, money, vehicle count, and move count.
+
+2. Add More Parts
+   Create 5 new parts (e.g., nitrous oxide, racing seats, spoiler)
+   with appropriate performance effects.
+
+3. Implement Part Removal
+   Allow players to uninstall parts from vehicles.
+
+4. Add Room Descriptions
+   Expand room descriptions to be more detailed and immersive.
+
+5. Implement a "MAP" Command
+   Show ASCII art map of the garage facility.
+
+
+7.2 INTERMEDIATE EXERCISES
+──────────────────────────
+
+1. Save/Load System
+   Implement binary save files using fwrite/fread:
+
+    int save_game(const GameState *game, const char *filename) {
+        FILE *f = fopen(filename, "wb");
+        if (f == nullptr) return -1;
+
+        fwrite(game, sizeof(GameState), 1, f);
+        fclose(f);
+        return 0;
+    }
+
+2. Vehicle Comparison System
+   Add command to compare two vehicles side-by-side with all stats.
+
+3. Part Shop System
+   Implement buying/selling parts with dynamic prices.
+
+4. Achievement System
+   Track achievements (first install, fastest lap, etc.)
+
+5. Enhanced Physics
+   Add weight distribution, tire grip, and gear ratios to calculations.
+
+
+7.3 ADVANCED EXERCISES
+──────────────────────
+
+1. Bellman-Ford Algorithm
+   Implement this algorithm for detecting negative-weight cycles
+   (could represent "teleporters" or "shortcuts").
+
+2. Dynamic Room Generation
+   Generate random room layouts at game start using graph algorithms.
+
+3. Racing Simulation
+   Full lap-by-lap racing with sector times and competitor AI.
+
+4. Genetic Algorithm Tuning
+   Use GA to find optimal part combinations for best lap times.
+
+5. Network Multiplayer
+   Implement client-server architecture using sockets.
+
+
+7.4 ALGORITHM CHALLENGES
+────────────────────────
+
+1. Implement Bidirectional A*
+   Search from both start and goal simultaneously for faster pathfinding.
+
+2. Floyd-Warshall All-Pairs Shortest Path
+   Find shortest paths between all pairs of rooms.
+
+3. Minimum Spanning Tree
+   Find minimum "cost" to connect all rooms (useful for cable routing).
+
+4. Traveling Salesman
+   Find optimal route to visit all rooms exactly once.
+
+5. Maximum Flow
+   Model traffic capacity between rooms using Ford-Fulkerson.
+
+
+═══════════════════════════════════════════════════════════════════════════
+8. TROUBLESHOOTING & DEBUGGING
+═══════════════════════════════════════════════════════════════════════════
+
+8.1 COMMON COMPILATION ERRORS
+──────────────────────────────
+
+ERROR: "undefined reference to cbrt"
+SOLUTION: Link math library at END of command line:
+    gcc ... -o program -lm
+
+ERROR: "unrecognized command-line option '-std=c23'"
+SOLUTION: Use -std=c2x instead (draft C23 standard)
+
+ERROR: "nullptr undeclared"
+SOLUTION:
+  1. Use -std=c2x or -std=c23
+  2. If unavailable, add: #define nullptr NULL
+
+ERROR: "constexpr undeclared"
+SOLUTION: Use -std=c2x, or replace with:
+    #define constexpr const
+
+ERROR: "warning: ISO C forbids empty initializer braces"
+SOLUTION: Use -std=c2x or replace {} with {0}
+
+
+8.2 DEBUGGING TECHNIQUES
+────────────────────────
+
+A. Using GDB (GNU Debugger)
+───────────────────────────
+
+Compile with debug symbols:
+    gcc -std=c2x -g -O0 advanced_garage_adventure_c23.c -o game_debug -lm
+
+Run in GDB:
+    gdb ./game_debug
+
+Useful GDB commands:
+    break main              # Break at main function
+    break line_number       # Break at specific line
+    run                     # Start program
+    next                    # Step over (n)
+    step                    # Step into (s)
+    continue               # Continue execution (c)
+    print variable         # Print variable value (p)
+    backtrace              # Show call stack (bt)
+    info locals            # Show local variables
+    quit                   # Exit GDB
+
+Example debugging session:
+    $ gdb ./game_debug
+    (gdb) break cmd_calculate
+    (gdb) run
+    > calculate all
+
+    (gdb) print *game
+    (gdb) print game->current_room
+    (gdb) print game->garage.vehicles[0]
+    (gdb) next
+    (gdb) continue
+
+
+B. Printf Debugging
+───────────────────
+
+Add strategic printf statements:
+
+    void cmd_navigate(GameState *game, const char *destination) {
+        printf("[DEBUG] Navigating to: %s\n", destination);
+        printf("[DEBUG] Current room: %d\n", game->current_room);
+
+        // ... rest of function ...
+
+        printf("[DEBUG] Path length: %d\n", path_length);
+    }
+
+Use #ifdef for conditional debug output:
+
+    #ifdef DEBUG
+        #define DEBUG_PRINT(fmt, ...) \
+            fprintf(stderr, "[DEBUG] %s:%d: " fmt "\n", \
+                    __FILE__, __LINE__, ##__VA_ARGS__)
+    #else
+        #define DEBUG_PRINT(fmt, ...) do {} while(0)
+    #endif
+
+    // Usage:
+    DEBUG_PRINT("Vehicle mass: %.2f", vehicle->mass);
+
+Compile with debug:
+    gcc -DDEBUG -std=c2x ...
+
+
+C. Valgrind (Memory Checking)
+──────────────────────────────
+
+Check for memory leaks and errors:
+    valgrind --leak-check=full ./garage_adventure
+
+Common issues caught:
+  - Memory leaks (malloc without free)
+  - Use of uninitialized variables
+  - Invalid memory access
+  - Buffer overflows
+
+
+D. Static Analysis Tools
+─────────────────────────
+
+Use cppcheck for static analysis:
+    cppcheck --enable=all advanced_garage_adventure_c23.c
+
+Use clang static analyzer:
+    clang --analyze -std=c2x advanced_garage_adventure_c23.c
+
+
+8.3 RUNTIME ISSUES
+──────────────────
+
+ISSUE: Pathfinding returns no path
+DEBUG:
+  1. Check room coordinates are set correctly
+  2. Verify connections are bidirectional
+  3. Print intermediate values in pathfinding loop
+  4. Ensure RoomID values are within range
+
+ISSUE: Physics calculations return strange values
+DEBUG:
+  1. Check for division by zero
+  2. Verify input units (m/s vs mph)
+  3. Print intermediate calculation steps
+  4. Check for integer division (use floating point)
+
+ISSUE: Segmentation fault
+DEBUG:
+  1. Run in GDB: gdb ./program, then "run"
+  2. Check array bounds (especially vehicle_count, parts_count)
+  3. Verify pointers are not nullptr before dereferencing
+  4. Check string lengths before copying (strncpy, not strcpy)
+
+ISSUE: Commands not recognized
+DEBUG:
+  1. Add debug print in parse_command()
+  2. Check for \n character in input (use strcspn)
+  3. Verify to_lowercase() is called
+  4. Check spelling in strcmp() calls
+
+
+8.4 PERFORMANCE OPTIMIZATION
+────────────────────────────
+
+Profile with gprof:
+    gcc -pg -std=c2x ... -o program
+    ./program
+    gprof program gmon.out > analysis.txt
+
+Optimization levels:
+    -O0  No optimization (debugging)
+    -O1  Basic optimization
+    -O2  Recommended optimization (default for release)
+    -O3  Aggressive optimization
+    -Os  Optimize for size
+
+Common optimizations for this game:
+  1. Use inline functions for frequently called small functions
+  2. Cache pathfinding results (memoization)
+  3. Use local variables instead of repeated array access
+  4. Minimize floating-point operations in loops
+
+
+═══════════════════════════════════════════════════════════════════════════
+APPENDIX A: COMPLETE FEATURE REFERENCE
+═══════════════════════════════════════════════════════════════════════════
+
+COMMANDS IN GAME
+────────────────
+
+Movement:
+  go <dir>        Move in direction (north/south/east/west)
+  n, s, e, w      Quick movement shortcuts
+  navigate <room> Use A* pathfinding to destination
+
+Information:
+  look            Describe current room
+  examine <obj>   Detailed object examination
+  inventory       Show garage contents
+
+Vehicle Management:
+  install <part>  Install part on vehicle
+  calculate <type> Physics calculations (all/terminal/acceleration/braking)
+
+System:
+  help            Show help
+  quit            Exit game
+
+
+ROOMS IN GAME
+─────────────
+
+1. Garage Entrance    - Starting location
+2. Main Garage Bay    - Vehicle storage area
+3. Workshop           - Part installation
+4. Parts Storage      - Available parts
+5. Paint Booth        - Cosmetic work
+6. Testing Track      - Performance testing
+7. Office             - Planning and management
+8. Tool Room          - Equipment storage
+9. Computer Lab       - Advanced calculations
+10. Showroom          - Display area
+
+
+VEHICLES INCLUDED
+─────────────────
+
+1. Lightning GT       - Sports Car (450 HP)
+2. Thunder Truck      - Truck (380 HP)
+3. Velocity Viper     - Race Car (600 HP)
+
+
+PARTS AVAILABLE
+───────────────
+
+1. Twin-Turbo Kit     - +30% performance ($5000)
+2. Racing Exhaust     - +10% performance ($2000)
+3. Performance ECU    - +20% performance ($3500)
+4. Carbon Brakes      - +15% performance ($4500)
+5. Racing Suspension  - +12% performance ($3000)
+
+
+═══════════════════════════════════════════════════════════════════════════
+APPENDIX B: C23 vs C17 vs C11 COMPARISON
+═══════════════════════════════════════════════════════════════════════════
+
+Feature                    C11      C17      C23      This Program
+─────────────────────────  ───────  ───────  ───────  ────────────
+nullptr                    ✗        ✗        ✓        Lines 353, 804
+constexpr                  ✗        ✗        ✓        Lines 25-40
+Built-in bool              ✗        ✗        ✓        Throughout
+Binary literals (0b)       ✗        ✗        ✓        Not used yet
+typeof                     ✗        ✗        ✓        Not used yet
+[[attributes]]             ✗        ✗        ✓        Not used yet
+_BitInt(N)                 ✗        ✗        ✓        Not used yet
+#embed                     ✗        ✗        ✓        Not used
+Empty init {}              ✗        ✗        ✓        Line 346
+Designated initializers    ✓        ✓        ✓        Lines 377-608
+Compound literals          ✓        ✓        ✓        Lines 613-617
+_Generic                   ✓        ✓        ✓        Not used yet
+_Static_assert             ✓        ✓        ✓        Not used yet
+Atomics                    ✓        ✓        ✓        Not used
+Threads                    ✓        ✓        ✓        Not used
+
+
+═══════════════════════════════════════════════════════════════════════════
+APPENDIX C: FURTHER READING & RESOURCES
+═══════════════════════════════════════════════════════════════════════════
+
+BOOKS
+─────
+1. "Modern C" by Jens Gustedt (2024)
+   https://gustedt.gitlabpages.inria.fr/modern-c/
+   - Comprehensive C11/C17/C23 coverage
+   - Free PDF available
+
+2. "The C Programming Language" by Kernighan & Ritchie (1988)
+   - Classic introduction, still relevant
+   - Covers C89/C90
+
+3. "Expert C Programming" by Peter van der Linden (1994)
+   - Deep dives into C internals
+   - Advanced topics
+
+4. "21st Century C" by Ben Klemens (2014)
+   - Modern C practices and tools
+   - Build systems, testing, debugging
+
+ONLINE RESOURCES
+────────────────
+- C23 Standard (Draft): https://www.open-std.org/jtc1/sc22/wg14/
+- cppreference.com: Excellent C reference
+- Compiler Explorer: https://godbolt.org/ (see assembly output)
+- C Quiz: https://www.gowrikumar.com/c/
+
+ALGORITHMS
+──────────
+- "Introduction to Algorithms" by CLRS
+- "The Algorithm Design Manual" by Skiena
+- Visualizations: https://visualgo.net/
+
+GAME DEVELOPMENT
+────────────────
+- "Game Programming Patterns" by Robert Nystrom
+- "Tricks of the Game Programming Gurus" (classic)
+
+
+═══════════════════════════════════════════════════════════════════════════
+CONCLUSION
+═══════════════════════════════════════════════════════════════════════════
+
+This tutorial has covered:
+
+✓ Modern C23 features and how they improve code quality
+✓ Advanced algorithms (A*, Dijkstra) with detailed explanations
+✓ Real-world physics calculations for automotive simulation
+✓ Extensible architecture for adding features
+✓ Debugging techniques and best practices
+
+The garage adventure game serves as a comprehensive learning platform
+that demonstrates C's capabilities beyond simple examples. It shows how
+C remains relevant for:
+
+  - High-performance applications
+  - Embedded systems and IoT
+  - Operating systems and drivers
+  - Scientific computing and simulation
+  - Game engines and real-time systems
+
+Keep experimenting, extending, and learning!
+
+═══════════════════════════════════════════════════════════════════════════
+VERSION HISTORY
+═══════════════════════════════════════════════════════════════════════════
+
+v1.0 - Initial release
+  - 10 rooms with pathfinding
+  - 3 vehicles, 5 parts
+  - A* and Dijkstra algorithms
+  - Physics calculations
+  - C23 feature demonstrations
+
+Future planned features:
+  - Weather system affecting vehicle performance
+  - Dynamic part market with supply/demand
+  - Fuel consumption simulation
+  - Multiplayer racing
+  - Achievement system
+  - Mod support
+
+═══════════════════════════════════════════════════════════════════════════
+
+Author: Generated for C23 Learning
+License: Free for educational use
+Contact: See course materials for support
+
+Happy coding! 🚗💨
