@@ -1,0 +1,3883 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                                                                            ║
+║              COMPREHENSIVE SYSTEMS PROGRAMMING CURRICULUM                  ║
+║                                                                            ║
+║        From C Fundamentals to Database Engineering & Networking            ║
+║                                                                            ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+TABLE OF CONTENTS
+═════════════════
+
+Part I:   System Architecture Review
+Part II:  Modern C Foundation (Using Gustedt's Modern C)
+Part III: Database Engineering From Scratch
+Part IV:  Learning Game Analysis & Enhancement
+Part V:   Progressive Project-Based Exercises
+Part VI:  Advanced Topics: Networking & Remote Servers
+Part VII: Extended Reading & Resources
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                   PART I: SYSTEM ARCHITECTURE REVIEW                       ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+1. OVERVIEW OF THE SQLITE LESSON DATABASE SYSTEM
+═════════════════════════════════════════════════
+
+The system implements a three-tier architecture for educational database
+management, demonstrating production-quality C programming practices and
+modern database design patterns.
+
+1.1 ARCHITECTURAL LAYERS
+────────────────────────
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                     PRESENTATION LAYER                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐             │
+│  │ db_manager   │  │learning_game │  │   seeder     │             │
+│  │ (CLI)        │  │ (Interactive)│  │ (Batch)      │             │
+│  └──────────────┘  └──────────────┘  └──────────────┘             │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                     BUSINESS LOGIC LAYER                            │
+│                      (db_common.h/c)                                │
+│  ┌──────────────────────────────────────────────────────┐          │
+│  │ • Database initialization                            │          │
+│  │ • Connection management                              │          │
+│  │ • Schema creation                                    │          │
+│  │ • Utility functions (difficulty strings, etc.)       │          │
+│  └──────────────────────────────────────────────────────┘          │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                      DATA ACCESS LAYER                              │
+│                    SQLite C API (libsqlite3)                        │
+│  ┌──────────────────────────────────────────────────────┐          │
+│  │ • Prepared statements                                │          │
+│  │ • Transaction management                             │          │
+│  │ • Query execution                                    │          │
+│  │ • Result set handling                                │          │
+│  └──────────────────────────────────────────────────────┘          │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                      STORAGE LAYER                                  │
+│                       lessons.db (SQLite)                           │
+│  ┌───────────────┐  ┌──────────────────┐  ┌──────────────┐        │
+│  │   lessons     │  │ learning_progress│  │ game_lessons │        │
+│  │   (main)      │  │ (tracking)       │  │ (tutorial)   │        │
+│  └───────────────┘  └──────────────────┘  └──────────────┘        │
+└─────────────────────────────────────────────────────────────────────┘
+
+
+1.2 COMPONENT ANALYSIS
+──────────────────────
+
+A. db_common Module (Shared Infrastructure)
+────────────────────────────────────────────
+
+FILE: db_common.h
+PURPOSE: Central definitions and API declarations
+
+Key Design Decisions:
+• Single database file constant (DB_FILE = "lessons.db")
+  → Ensures all components access same database
+  → Simplifies deployment (single file to backup/migrate)
+
+• Enum for difficulty levels (1-4)
+  → Type-safe difficulty handling
+  → Database constraint CHECK(difficulty >= 1 AND difficulty <= 4)
+  → Prevents invalid data at storage level
+
+• Lesson structure with fixed-size buffers
+  → topic[256], category[128], content[4096]
+  → Trade-off: Fixed size vs. simplicity
+  → Modern alternative: Dynamic allocation with malloc/free
+  → Best practice: Use TEXT in SQLite, allocate based on need
+
+Security Insight:
+The fixed-size buffers prevent buffer overflow but limit flexibility.
+Production systems should use:
+  - sqlite3_column_text() which returns dynamic strings
+  - Allocate exact memory needed
+  - Free after use
+
+
+FILE: db_common.c
+PURPOSE: Database initialization and utilities
+
+Critical Function: init_database()
+────────────────────────────────────
+
+int init_database(sqlite3 **db) {
+    int rc = sqlite3_open(DB_FILE, db);
+    // Error handling
+
+    // Create tables if not exist
+    const char *sql_create_lessons = "CREATE TABLE IF NOT EXISTS...";
+
+    // Execute DDL statements
+    rc = sqlite3_exec(*db, sql_create_lessons, NULL, NULL, &err_msg);
+}
+
+Analysis:
+✓ Idempotent: Safe to call multiple times (CREATE IF NOT EXISTS)
+✓ Error handling: Checks return codes and reports errors
+✓ Separation of concerns: DDL separate from DML
+✗ Missing: Transaction wrapping for atomic table creation
+✗ Missing: Schema versioning for migrations
+
+Modern Improvement:
+────────────────────
+Add schema version table:
+
+CREATE TABLE schema_version (
+    version INTEGER PRIMARY KEY,
+    applied_at INTEGER NOT NULL
+);
+
+This enables database migrations when schema changes.
+
+
+B. db_manager (Primary User Interface)
+───────────────────────────────────────
+
+Architecture: Menu-driven CLI with function dispatch
+
+Control Flow:
+    main()
+      │
+      ├─→ init_database()
+      │
+      └─→ while(1) {
+            ├─→ print_menu()
+            ├─→ read user choice
+            └─→ switch(choice) {
+                  case 1: add_lesson()
+                  case 2: view_all_lessons()
+                  case 3: search_lessons()
+                  case 4: view_lesson_by_id()
+                  case 5: delete_lesson()
+                  case 6: list_by_category()
+                  case 7: list_by_difficulty()
+                  case 0: exit
+                }
+          }
+
+Security Analysis of add_lesson():
+──────────────────────────────────
+
+const char *sql = "INSERT INTO lessons (...) VALUES (?, ?, ?, ?, ?);";
+sqlite3_stmt *stmt;
+sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+
+sqlite3_bind_text(stmt, 1, topic, -1, SQLITE_STATIC);
+sqlite3_bind_text(stmt, 2, category, -1, SQLITE_STATIC);
+sqlite3_bind_int(stmt, 3, difficulty);
+sqlite3_bind_text(stmt, 4, content, -1, SQLITE_STATIC);
+sqlite3_bind_int64(stmt, 5, now);
+
+sqlite3_step(stmt);
+sqlite3_finalize(stmt);
+
+Security Features:
+✓ Prepared statements: Immune to SQL injection
+✓ Parameterized queries: Values never concatenated into SQL
+✓ Type checking: sqlite3_bind_int() enforces integer types
+✓ Memory safety: SQLITE_STATIC flag (data outlives statement)
+
+Input Validation Analysis:
+✓ Difficulty checked (1-4 range)
+✓ fgets() with buffer size (prevents buffer overflow)
+✓ strcspn() to remove newline (safe string manipulation)
+✗ Missing: Length validation before insertion
+✗ Missing: UTF-8 validation for text fields
+
+Modern Best Practice:
+─────────────────────
+Add input sanitization:
+
+bool validate_lesson_input(const Lesson *lesson) {
+    if (strlen(lesson->topic) == 0) return false;
+    if (strlen(lesson->content) < 10) return false;  // Min content length
+    if (!is_valid_utf8(lesson->topic)) return false;
+    return true;
+}
+
+
+C. seeder (Data Population)
+────────────────────────────
+
+Design Pattern: Static data initialization
+
+LessonData lessons[] = {
+    {
+        .topic = "B+ Tree Indexing in Modern Databases",
+        .category = "Database Internals",
+        .difficulty = DIFFICULTY_ADVANCED,
+        .content = "..."
+    },
+    // ... 23 more lessons
+};
+
+Advantages:
+✓ Compile-time initialization (no parsing overhead)
+✓ Type-safe (compiler checks struct members)
+✓ Self-documenting (data with code)
+✓ Version controlled (lessons tracked in git)
+
+Disadvantages:
+✗ Large binary size (60KB for 24 lessons)
+✗ Recompile needed for lesson changes
+✗ Not scalable for thousands of lessons
+
+Alternative Approach:
+─────────────────────
+External JSON/YAML file:
+
+lessons.json:
+{
+  "lessons": [
+    {
+      "topic": "B+ Tree Indexing",
+      "category": "Database Internals",
+      "difficulty": 3,
+      "content": "..."
+    }
+  ]
+}
+
+Parse with: cJSON library (https://github.com/DaveGamble/cJSON)
+
+
+D. learning_game (Interactive Tutorial)
+────────────────────────────────────────
+
+Pedagogical Architecture: Spaced Repetition System (SRS)
+
+The learning game implements the SuperMemo SM-2 algorithm variant:
+
+Review Intervals:
+  Review #1: 1 day
+  Review #2: 3 days
+  Review #3: 7 days
+  Review #4: 14 days
+  Review #5+: 30 days
+
+Implementation:
+
+int get_next_review_interval(int review_count) {
+    switch (review_count) {
+        case 0: return 1;   // INTERVAL_1
+        case 1: return 3;   // INTERVAL_2
+        case 2: return 7;   // INTERVAL_3
+        case 3: return 14;  // INTERVAL_4
+        default: return 30; // INTERVAL_5
+    }
+}
+
+void update_progress(sqlite3 *db, int lesson_id, int confidence) {
+    time_t now = time(NULL);
+    int interval = get_next_review_interval(review_count);
+    time_t next_review = now + (interval * 24 * 60 * 60);
+
+    // Update learning_progress table
+}
+
+Cognitive Science Foundation:
+─────────────────────────────
+This implements the "spacing effect" (Ebbinghaus, 1885):
+- Information reviewed at increasing intervals is retained longer
+- Optimal spacing: When you're about to forget (desirable difficulty)
+- Confidence tracking adjusts intervals (easier if struggling)
+
+Improvement Opportunity:
+────────────────────────
+Implement full SM-2 algorithm with ease factor:
+
+EF' = EF + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02))
+
+Where:
+  EF = Ease Factor (2.5 initial)
+  q = quality of response (1-5)
+  EF' = New ease factor
+
+This personalizes intervals based on individual performance.
+
+
+1.3 DATABASE SCHEMA ANALYSIS
+─────────────────────────────
+
+lessons Table:
+──────────────
+
+CREATE TABLE lessons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic TEXT NOT NULL,
+    category TEXT NOT NULL,
+    difficulty INTEGER NOT NULL CHECK(difficulty >= 1 AND difficulty <= 4),
+    content TEXT NOT NULL,
+    timestamp INTEGER NOT NULL
+);
+
+Design Review:
+✓ AUTOINCREMENT: Ensures unique, non-reused IDs
+✓ NOT NULL: Prevents incomplete records
+✓ CHECK constraint: Enforces data integrity at DB level
+✓ INTEGER for timestamp: UNIX epoch (space efficient)
+
+Missing Optimizations:
+✗ No indexes on category or difficulty (slow for filtering)
+✗ No full-text search index on content
+✗ No foreign key from category to categories table (no referential integrity)
+
+Recommended Indexes:
+────────────────────
+
+CREATE INDEX idx_lessons_category ON lessons(category);
+CREATE INDEX idx_lessons_difficulty ON lessons(difficulty);
+CREATE INDEX idx_lessons_timestamp ON lessons(timestamp DESC);
+
+For full-text search:
+
+CREATE VIRTUAL TABLE lessons_fts USING fts5(
+    topic, category, content,
+    content='lessons',
+    content_rowid='id'
+);
+
+
+learning_progress Table:
+─────────────────────────
+
+CREATE TABLE learning_progress (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lesson_id INTEGER NOT NULL,
+    last_reviewed INTEGER NOT NULL,
+    review_count INTEGER DEFAULT 0,
+    confidence_level INTEGER DEFAULT 1,
+    next_review INTEGER,
+    FOREIGN KEY(lesson_id) REFERENCES lessons(id)
+);
+
+Design Review:
+✓ Foreign key: Maintains referential integrity
+✓ Default values: Sensible defaults for new records
+✓ next_review: Enables efficient "due today" queries
+
+Missing:
+✗ No ON DELETE CASCADE (orphaned progress if lesson deleted)
+✗ No UNIQUE constraint on lesson_id (duplicate progress possible)
+✗ No index on next_review (slow for finding due lessons)
+
+Improved Schema:
+────────────────
+
+CREATE TABLE learning_progress (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lesson_id INTEGER NOT NULL UNIQUE,  -- Only one progress per lesson
+    last_reviewed INTEGER NOT NULL,
+    review_count INTEGER DEFAULT 0 CHECK(review_count >= 0),
+    confidence_level INTEGER DEFAULT 1 CHECK(confidence_level BETWEEN 1 AND 4),
+    next_review INTEGER,
+    FOREIGN KEY(lesson_id) REFERENCES lessons(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_progress_next_review ON learning_progress(next_review)
+WHERE confidence_level < 4;  -- Partial index (only incomplete lessons)
+
+
+1.4 SECURITY ANALYSIS
+─────────────────────
+
+SQL Injection Protection:
+─────────────────────────
+
+ALL queries use prepared statements with parameter binding:
+
+// SECURE ✓
+const char *sql = "SELECT * FROM lessons WHERE category = ?;";
+sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+sqlite3_bind_text(stmt, 1, user_input, -1, SQLITE_TRANSIENT);
+
+// INSECURE ✗ (what we DON'T do)
+char sql[256];
+sprintf(sql, "SELECT * FROM lessons WHERE category = '%s';", user_input);
+sqlite3_exec(db, sql, callback, NULL, NULL);
+
+Attack Prevention:
+  If user_input = "'; DROP TABLE lessons; --"
+
+  Prepared statement: Treated as literal string
+  String concatenation: Executes DROP TABLE command!
+
+
+Buffer Overflow Protection:
+───────────────────────────
+
+Input reading uses bounded operations:
+
+fgets(topic, sizeof(topic), stdin);    // ✓ Buffer size enforced
+topic[strcspn(topic, "\n")] = 0;       // ✓ Safe newline removal
+
+Avoid:
+gets(topic);                           // ✗ No bounds checking
+scanf("%s", topic);                    // ✗ Overflows on long input
+
+Modern Alternative (C11):
+gets_s(topic, sizeof(topic));          // Bounds-checked gets
+
+
+Memory Safety:
+──────────────
+
+SQLite handles memory for result sets:
+
+const unsigned char *text = sqlite3_column_text(stmt, 0);
+// SQLite owns this memory, valid until next sqlite3_step() or finalize
+
+If you need to keep the data:
+
+char *copy = strdup((const char *)text);  // Allocate copy
+// Use copy...
+free(copy);                                // Free when done
+
+
+1.5 PERFORMANCE CHARACTERISTICS
+────────────────────────────────
+
+Current Performance Profile:
+────────────────────────────
+
+Operation               Complexity    Notes
+─────────────────────   ──────────    ─────────────────────────────
+Insert lesson           O(log n)      B-tree insertion
+View all lessons        O(n)          Full table scan
+Search by keyword       O(n)          No full-text index
+Filter by category      O(n)          No index on category
+Filter by difficulty    O(n)          No index on difficulty
+Get lesson by ID        O(log n)      Primary key lookup
+Delete lesson           O(log n)      Primary key lookup
+
+With Recommended Indexes:
+─────────────────────────
+
+Operation               Complexity    Improvement
+─────────────────────   ──────────    ───────────────────────
+Filter by category      O(log n)      Index seek
+Filter by difficulty    O(log n)      Index seek
+Search by keyword       O(k)          FTS5 index (k = matches)
+
+Scalability Analysis:
+─────────────────────
+
+Current: 24 lessons (60KB database)
+- All operations are instant (< 1ms)
+
+At 1,000 lessons (~2.5 MB):
+- Without indexes: Category filtering ~10ms
+- With indexes: Category filtering ~0.5ms
+
+At 100,000 lessons (~250 MB):
+- Without indexes: Category filtering ~1000ms (1 second)
+- With indexes: Category filtering ~1ms
+- FTS search: ~10-50ms (depending on query complexity)
+
+Conclusion: Indexes essential for production use at scale.
+
+
+1.6 ARCHITECTURAL STRENGTHS
+────────────────────────────
+
+1. Separation of Concerns
+   ✓ db_common handles all database operations
+   ✓ Applications focus on business logic
+   ✓ Easy to swap SQLite for another database
+
+2. DRY Principle (Don't Repeat Yourself)
+   ✓ Single init_database() function
+   ✓ Shared difficulty level mapping
+   ✓ Common error handling patterns
+
+3. Defense in Depth (Security)
+   ✓ Prepared statements (SQL injection)
+   ✓ Bounded input (buffer overflow)
+   ✓ CHECK constraints (data integrity)
+   ✓ Foreign keys (referential integrity)
+
+4. Idempotency
+   ✓ init_database() safe to call multiple times
+   ✓ Seeder checks for existing data
+   ✓ CREATE IF NOT EXISTS pattern
+
+5. Educational Value
+   ✓ Demonstrates production C patterns
+   ✓ Shows proper SQLite API usage
+   ✓ Includes security best practices
+
+
+1.7 ARCHITECTURAL WEAKNESSES & IMPROVEMENTS
+────────────────────────────────────────────
+
+Current Limitations:
+────────────────────
+
+1. No Transaction Management
+   Problem: Multi-statement operations not atomic
+   Example: Adding lesson + initializing progress
+
+   Fix:
+   sqlite3_exec(db, "BEGIN TRANSACTION;", NULL, NULL, NULL);
+   add_lesson(db, lesson);
+   initialize_progress(db, lesson_id);
+   sqlite3_exec(db, "COMMIT;", NULL, NULL, NULL);
+
+2. No Connection Pooling
+   Problem: Each program opens/closes connection
+   Impact: Fine for CLI, bad for server applications
+
+   Fix: Connection pool (for multi-threaded server):
+   typedef struct {
+       sqlite3 *connections[MAX_CONNECTIONS];
+       pthread_mutex_t lock;
+   } ConnectionPool;
+
+3. No Concurrent Access Control
+   Problem: Multiple writers can cause lock contention
+   SQLite default: Database-level locking
+
+   Fix: Enable WAL mode for concurrent reads:
+   PRAGMA journal_mode=WAL;
+
+   Benefits:
+   - Multiple readers don't block
+   - Readers don't block writer
+   - Writer doesn't block readers
+
+4. Fixed Buffer Sizes
+   Problem: topic[256] wastes memory, limits length
+
+   Fix: Dynamic allocation
+   char *topic = sqlite3_column_text(stmt, 0);
+   size_t len = strlen(topic);
+   char *copy = malloc(len + 1);
+   strcpy(copy, topic);
+
+5. No Logging or Audit Trail
+   Problem: No record of who changed what when
+
+   Fix: Audit table
+   CREATE TABLE audit_log (
+       id INTEGER PRIMARY KEY,
+       table_name TEXT,
+       operation TEXT,  -- INSERT, UPDATE, DELETE
+       record_id INTEGER,
+       timestamp INTEGER,
+       user TEXT,
+       changes TEXT  -- JSON with before/after
+   );
+
+6. No Schema Versioning
+   Problem: Can't migrate database when schema changes
+
+   Fix: Migration system
+   CREATE TABLE schema_migrations (
+       version INTEGER PRIMARY KEY,
+       applied_at INTEGER
+   );
+
+   void migrate_to_v2(sqlite3 *db) {
+       int current = get_schema_version(db);
+       if (current < 2) {
+           sqlite3_exec(db, "ALTER TABLE lessons ADD COLUMN author TEXT;");
+           set_schema_version(db, 2);
+       }
+   }
+
+
+1.8 DEPLOYMENT CONSIDERATIONS
+──────────────────────────────
+
+Current: Single-User Desktop Application
+─────────────────────────────────────────
+✓ Simple deployment (just copy executables + lessons.db)
+✓ No network configuration
+✓ No authentication needed
+✓ File-based backup (cp lessons.db lessons.db.backup)
+
+Scaling to Multi-User:
+───────────────────────
+
+Option 1: Shared Network Drive
+  Pros: Simple, no code changes
+  Cons: Locking contention, no fine-grained permissions
+
+  Implementation:
+  - Mount shared drive
+  - Set DB_FILE to network path
+  - Enable WAL mode
+  - Risk: Network interruptions corrupt database
+
+Option 2: Client-Server Architecture
+  Pros: Better concurrency, centralized control
+  Cons: Requires server development
+
+  Architecture:
+
+  ┌─────────┐      HTTP/gRPC        ┌─────────┐
+  │ Client  │ ───────────────────→  │ Server  │
+  │ (CLI)   │ ←───────────────────  │ (C API) │
+  └─────────┘      JSON/Protobuf    └─────────┘
+                                         │
+                                         ▼
+                                    ┌──────────┐
+                                    │ SQLite   │
+                                    │ Database │
+                                    └──────────┘
+
+  Server handles:
+  - Connection pooling
+  - Authentication
+  - Authorization
+  - Transaction management
+  - Concurrent access
+
+Option 3: Migrate to Client-Server Database
+  Replace SQLite with PostgreSQL/MySQL
+
+  Pros: Designed for multi-user, robust concurrency
+  Cons: More complex deployment, higher resource usage
+
+  Migration path:
+  1. Export SQLite data to SQL dump
+  2. Modify schema for target database
+  3. Update code to use libpq (PostgreSQL) or libmysqlclient
+  4. Handle connection pooling, prepared statements
+
+Backup Strategy:
+────────────────
+
+For SQLite:
+  # Online backup (no downtime)
+  sqlite3 lessons.db ".backup lessons.db.backup"
+
+  # Scheduled backup (cron)
+  0 2 * * * sqlite3 /path/to/lessons.db ".backup /backup/lessons-$(date +\%Y\%m\%d).db"
+
+For Production:
+  - Daily full backups
+  - WAL archiving for point-in-time recovery
+  - Test restore procedures regularly
+  - Store backups off-site (cloud storage)
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║              PART II: MODERN C FOUNDATION (GUSTEDT'S MODERN C)             ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+2. LEARNING C THE MODERN WAY
+═════════════════════════════
+
+Resource: "Modern C" by Jens Gustedt
+Available: https://gustedt.gitlabpages.inria.fr/modern-c/
+License: Creative Commons (freely available)
+
+Modern C emphasizes C11/C17 standards with focus on:
+- Type-generic programming
+- _Generic keyword
+- Atomic operations
+- Thread support
+- Bounds-checking interfaces
+
+
+2.1 GUSTEDT'S MODERN C - KEY TAKEAWAYS FOR THIS PROJECT
+────────────────────────────────────────────────────────
+
+Level 0: Encounter
+──────────────────
+
+Gustedt starts with compilation and running programs.
+Our project demonstrates this in the Makefile:
+
+  gcc -Wall -Wextra -std=c11 -g db_manager.c db_common.o -o db_manager -lsqlite3
+
+Key flags explained:
+  -Wall -Wextra : Enable comprehensive warnings
+  -std=c11      : Use C11 standard (modern C features)
+  -g            : Include debugging symbols
+  -lsqlite3     : Link SQLite library
+
+Gustedt's emphasis: Start with working code, understand compilation later.
+
+
+Level 1: Acquaintance
+─────────────────────
+
+Core concepts demonstrated in our codebase:
+
+1. Variables and Types (db_common.h)
+
+   typedef enum {
+       DIFFICULTY_BEGINNER = 1,
+       DIFFICULTY_INTERMEDIATE = 2,
+       DIFFICULTY_ADVANCED = 3,
+       DIFFICULTY_EXPERT = 4
+   } DifficultyLevel;
+
+   Modern C insight: Enums provide type safety.
+   Instead of: int difficulty = 2;  // What does 2 mean?
+   Use:        DifficultyLevel difficulty = DIFFICULTY_INTERMEDIATE;
+
+2. Functions (db_common.c)
+
+   int init_database(sqlite3 **db) {
+       // Function signature shows:
+       // - Return type: int (error code)
+       // - Parameter: sqlite3** (pointer to pointer for output)
+       // - Name: init_database (verb phrase, descriptive)
+   }
+
+   Gustedt's principle: Functions should have single responsibility.
+
+3. Pointers (throughout codebase)
+
+   // Pass by reference to modify caller's variable
+   init_database(&db);  // db is modified
+
+   // Pass by value (copy)
+   int difficulty = DIFFICULTY_ADVANCED;
+   insert_lesson(db, lesson, difficulty);  // difficulty copied
+
+   Modern C: Understand when to use pointers vs values.
+
+
+Level 2: Cognition
+──────────────────
+
+Advanced features we use:
+
+1. Structures (db_common.h)
+
+   typedef struct {
+       int id;
+       char topic[256];
+       char category[128];
+       int difficulty;
+       char content[4096];
+       time_t timestamp;
+   } Lesson;
+
+   Gustedt's insight: Use designated initializers (C99):
+
+   Lesson lesson = {
+       .topic = "Modern C",
+       .difficulty = DIFFICULTY_INTERMEDIATE,
+       .content = "...",
+       .timestamp = time(NULL)
+   };
+
+   Benefits:
+   - Self-documenting
+   - Order-independent
+   - Missing fields zero-initialized
+
+2. Arrays and Strings
+
+   char topic[256];
+   fgets(topic, sizeof(topic), stdin);
+
+   Modern C principle: Always use sizeof(), never hardcode:
+
+   ✗ fgets(topic, 256, stdin);        // Fragile
+   ✓ fgets(topic, sizeof(topic), stdin);  // Safe, maintainable
+
+3. Memory Management
+
+   Current code uses stack allocation:
+   char topic[256];  // Automatic storage duration
+
+   Modern C alternative - VLAs (Variable Length Arrays):
+   size_t len = calculate_needed_size();
+   char topic[len];  // VLA, size determined at runtime
+
+   Or explicit heap allocation:
+   char *topic = malloc(256);
+   if (!topic) { /* handle error */ }
+   // Use topic...
+   free(topic);
+
+
+Level 3: Experience
+───────────────────
+
+Gustedt's advanced topics applicable to our project:
+
+1. Generic Programming with _Generic (C11)
+
+   Current code:
+   printf("Age: %d\n", age);
+   printf("Pi: %.2f\n", pi);
+
+   Modern C with type-generic print:
+
+   #define print(X) _Generic((X), \
+       int: printf("%d\n", X), \
+       double: printf("%.2f\n", X), \
+       char*: printf("%s\n", X) \
+   )
+
+   Usage:
+   print(42);        // Calls printf("%d\n", 42)
+   print(3.14);      // Calls printf("%.2f\n", 3.14)
+   print("Hello");   // Calls printf("%s\n", "Hello")
+
+2. Atomic Operations (C11)
+
+   For multi-threaded lesson access:
+
+   #include <stdatomic.h>
+
+   typedef struct {
+       atomic_int access_count;
+       // ... other fields
+   } Lesson;
+
+   void increment_access(Lesson *lesson) {
+       atomic_fetch_add(&lesson->access_count, 1);
+   }
+
+   Gustedt's emphasis: Atomics prevent race conditions without locks.
+
+3. Bounds-Checking Interfaces (C11 Annex K)
+
+   Current:
+   strcpy(dest, src);  // Unsafe if src > dest
+
+   Modern C (if available):
+   strcpy_s(dest, sizeof(dest), src);  // Bounds checked
+
+   Note: Annex K optional, not widely implemented.
+   Alternative: Use strlcpy (BSD) or manual checking.
+
+
+2.2 MODERN C FEATURES FOR DATABASE PROGRAMMING
+───────────────────────────────────────────────
+
+Applying Gustedt's principles to our database code:
+
+1. Static Assertions (Compile-Time Checks)
+
+   _Static_assert(sizeof(int) == 4, "int must be 4 bytes");
+   _Static_assert(DIFFICULTY_EXPERT == 4, "Difficulty enum mismatch");
+
+   These catch errors at compile time, not runtime.
+
+2. Compound Literals (Inline Initialization)
+
+   Instead of:
+   Lesson lesson;
+   lesson.difficulty = DIFFICULTY_ADVANCED;
+   strcpy(lesson.topic, "Modern C");
+   insert_lesson(db, &lesson);
+
+   Use compound literal:
+   insert_lesson(db, &(Lesson){
+       .difficulty = DIFFICULTY_ADVANCED,
+       .topic = "Modern C",
+       .timestamp = time(NULL)
+   });
+
+3. Flexible Array Members
+
+   Instead of fixed content[4096]:
+
+   typedef struct {
+       int id;
+       char topic[256];
+       int difficulty;
+       size_t content_length;
+       char content[];  // Flexible array member
+   } Lesson;
+
+   Allocation:
+   size_t content_len = strlen(user_content);
+   Lesson *lesson = malloc(sizeof(Lesson) + content_len + 1);
+   strcpy(lesson->content, user_content);
+
+4. restrict Keyword (Optimization Hint)
+
+   void copy_lesson(Lesson *restrict dest, const Lesson *restrict src) {
+       memcpy(dest, src, sizeof(Lesson));
+   }
+
+   'restrict' tells compiler: dest and src don't overlap.
+   Enables better optimization (no aliasing checks needed).
+
+
+2.3 RECOMMENDED STUDY PATH THROUGH MODERN C
+────────────────────────────────────────────
+
+To build our database system, study Modern C in this order:
+
+Week 1: Chapters 1-6 (Level 0-1)
+─────────────────────────────────
+□ Chapter 1: Getting Started
+  - Compile and run imperative.c example
+  - Modify to print lesson data
+
+□ Chapter 2: The Principal Structure
+  - Understand main() function
+  - Exercise: Write program that opens database and prints count
+
+□ Chapter 3: Everything is About Control
+  - if/else, loops, functions
+  - Exercise: Implement menu system for database
+
+□ Chapter 4: Expressing Computations
+  - Operators, expressions
+  - Exercise: Calculate lesson difficulty distribution
+
+□ Chapter 5: Basic Values and Data
+  - Types, constants, literals
+  - Exercise: Define Lesson structure
+
+□ Chapter 6: Derived Data Types
+  - Arrays, pointers, structures
+  - Exercise: Array of lessons in memory
+
+Week 2: Chapters 7-9 (Level 1-2)
+─────────────────────────────────
+□ Chapter 7: Functions
+  - Declaration, definition, parameters
+  - Exercise: CRUD functions for lessons
+
+□ Chapter 8: C Library Functions
+  - printf, scanf, string.h, time.h
+  - Exercise: Format lesson output with timestamps
+
+□ Chapter 9: Style
+  - Naming conventions, formatting
+  - Exercise: Refactor code to Gustedt's style
+
+Week 3: Chapters 10-13 (Level 2)
+─────────────────────────────────
+□ Chapter 10: Organization and Documentation
+  - Header files, .c files, comments
+  - Exercise: Create db_common.h/c structure
+
+□ Chapter 11: Pointers
+  - Pointer arithmetic, arrays, strings
+  - Exercise: Navigate lesson array with pointers
+
+□ Chapter 12: The C Memory Model
+  - Stack vs heap, lifetime, scope
+  - Exercise: Dynamic lesson allocation
+
+□ Chapter 13: Storage
+  - Storage classes, linkage
+  - Exercise: Static vs global variables in db module
+
+Week 4: Chapters 14-17 (Level 3)
+─────────────────────────────────
+□ Chapter 14: More Involved Processing
+  - Text processing, I/O
+  - Exercise: Import lessons from CSV file
+
+□ Chapter 15: Performance
+  - Optimization, profiling
+  - Exercise: Benchmark database operations
+
+□ Chapter 16: Function-Like Macros
+  - Preprocessor, macros
+  - Exercise: Generic print macro
+
+□ Chapter 17: Variations in Control Flow
+  - setjmp/longjmp, signal handling
+  - Exercise: Error handling in database operations
+
+Week 5: Chapters 18-19 (Advanced)
+──────────────────────────────────
+□ Chapter 18: Threads
+  - Thread creation, synchronization
+  - Exercise: Multi-threaded lesson processing
+
+□ Chapter 19: Atomic Access and Memory Consistency
+  - C11 atomics, memory ordering
+  - Exercise: Lock-free lesson counter
+
+
+2.4 HANDS-ON EXERCISES WITH MODERN C
+─────────────────────────────────────
+
+Exercise 1: Modern C Basics
+────────────────────────────
+File: modern_hello.c
+
+#include <stdio.h>
+
+int main(void) {
+    // C99 designated initializer
+    struct lesson {
+        char topic[50];
+        int difficulty;
+    } my_lesson = {
+        .topic = "Modern C Basics",
+        .difficulty = 1
+    };
+
+    printf("Lesson: %s (Difficulty: %d)\n",
+           my_lesson.topic, my_lesson.difficulty);
+
+    return 0;
+}
+
+Compile: gcc -std=c11 -Wall modern_hello.c -o modern_hello
+Run: ./modern_hello
+
+
+Exercise 2: Generic Macros
+───────────────────────────
+File: generic_print.c
+
+#include <stdio.h>
+
+#define PRINT(X) _Generic((X), \
+    int: print_int, \
+    double: print_double, \
+    char*: print_string \
+)(X)
+
+void print_int(int x) {
+    printf("Integer: %d\n", x);
+}
+
+void print_double(double x) {
+    printf("Double: %.2f\n", x);
+}
+
+void print_string(char *x) {
+    printf("String: %s\n", x);
+}
+
+int main(void) {
+    PRINT(42);
+    PRINT(3.14159);
+    PRINT("Hello, Modern C!");
+    return 0;
+}
+
+
+Exercise 3: Atomic Operations
+──────────────────────────────
+File: atomic_counter.c
+
+#include <stdio.h>
+#include <stdatomic.h>
+#include <threads.h>
+
+atomic_int counter = 0;
+
+int worker(void *arg) {
+    (void)arg;
+    for (int i = 0; i < 10000; i++) {
+        atomic_fetch_add(&counter, 1);
+    }
+    return 0;
+}
+
+int main(void) {
+    thrd_t threads[10];
+
+    for (int i = 0; i < 10; i++) {
+        thrd_create(&threads[i], worker, NULL);
+    }
+
+    for (int i = 0; i < 10; i++) {
+        thrd_join(threads[i], NULL);
+    }
+
+    printf("Final count: %d\n", atomic_load(&counter));
+    printf("Expected: 100000\n");
+
+    return 0;
+}
+
+Compile: gcc -std=c11 -Wall atomic_counter.c -o atomic_counter
+Expected output: Final count: 100000 (always correct, no races)
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║            PART III: DATABASE ENGINEERING FROM SCRATCH                     ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+3. BUILDING DATABASE KNOWLEDGE PROGRESSIVELY
+═════════════════════════════════════════════
+
+This section provides a structured curriculum to go from zero to database
+engineer, using our project as the foundation.
+
+
+3.1 PHASE 1: DATABASE FUNDAMENTALS (WEEKS 1-2)
+───────────────────────────────────────────────
+
+Goal: Understand what databases do and why we need them
+
+Reading:
+────────
+1. "Readings in Database Systems" (Red Book) - Free PDF
+   http://www.redbook.io/
+   Read: Introduction, Chapter 1 (Background)
+
+2. CMU 15-445 Intro to Database Systems - Lecture 1
+   https://www.youtube.com/watch?v=oeYBdghaIjc
+   Andy Pavlo's excellent free course
+
+3. SQLite Documentation - Architecture
+   https://www.sqlite.org/arch.html
+
+Concepts to Master:
+───────────────────
+□ ACID properties (Atomicity, Consistency, Isolation, Durability)
+□ SQL vs NoSQL
+□ Relational model (tables, rows, columns)
+□ Primary keys and foreign keys
+□ Indexes and query optimization
+□ Transactions
+
+Practical Exercise 1.1: Manual Database in C
+─────────────────────────────────────────────
+
+Build a simple in-memory database WITHOUT SQLite:
+
+File: simple_db.c
+
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+#define MAX_RECORDS 100
+
+typedef struct {
+    int id;
+    char name[50];
+    int age;
+} Person;
+
+Person database[MAX_RECORDS];
+int record_count = 0;
+
+void insert(const char *name, int age) {
+    if (record_count >= MAX_RECORDS) {
+        printf("Database full!\n");
+        return;
+    }
+
+    database[record_count].id = record_count + 1;
+    strncpy(database[record_count].name, name, 49);
+    database[record_count].age = age;
+    record_count++;
+
+    printf("Inserted: ID=%d\n", record_count);
+}
+
+Person* select_by_id(int id) {
+    for (int i = 0; i < record_count; i++) {
+        if (database[i].id == id) {
+            return &database[i];
+        }
+    }
+    return NULL;
+}
+
+void select_all() {
+    printf("\nID | Name                | Age\n");
+    printf("---+---------------------+----\n");
+    for (int i = 0; i < record_count; i++) {
+        printf("%-2d | %-19s | %d\n",
+               database[i].id,
+               database[i].name,
+               database[i].age);
+    }
+}
+
+void save_to_file(const char *filename) {
+    FILE *fp = fopen(filename, "wb");
+    if (!fp) {
+        perror("Error opening file");
+        return;
+    }
+
+    fwrite(&record_count, sizeof(int), 1, fp);
+    fwrite(database, sizeof(Person), record_count, fp);
+    fclose(fp);
+
+    printf("Database saved to %s\n", filename);
+}
+
+void load_from_file(const char *filename) {
+    FILE *fp = fopen(filename, "rb");
+    if (!fp) {
+        perror("Error opening file");
+        return;
+    }
+
+    fread(&record_count, sizeof(int), 1, fp);
+    fread(database, sizeof(Person), record_count, fp);
+    fclose(fp);
+
+    printf("Loaded %d records from %s\n", record_count, filename);
+}
+
+int main() {
+    printf("Simple In-Memory Database\n\n");
+
+    insert("Alice", 30);
+    insert("Bob", 25);
+    insert("Charlie", 35);
+
+    select_all();
+
+    Person *p = select_by_id(2);
+    if (p) {
+        printf("\nFound: %s, age %d\n", p->name, p->age);
+    }
+
+    save_to_file("simple.db");
+
+    // Simulate program restart
+    record_count = 0;
+    printf("\n--- Simulating restart ---\n");
+
+    load_from_file("simple.db");
+    select_all();
+
+    return 0;
+}
+
+Exercise Questions:
+───────────────────
+1. What happens if the program crashes before save_to_file()?
+2. How would you implement DELETE?
+3. How would you implement UPDATE?
+4. What's the time complexity of select_by_id()? How to improve?
+5. How would you add an index on the 'name' field?
+
+
+Practical Exercise 1.2: Add Indexing
+─────────────────────────────────────
+
+Improve simple_db.c with a simple index:
+
+typedef struct {
+    int key;        // ID
+    int position;   // Array index
+} IndexEntry;
+
+IndexEntry index[MAX_RECORDS];
+int index_count = 0;
+
+void rebuild_index() {
+    index_count = 0;
+    for (int i = 0; i < record_count; i++) {
+        index[index_count].key = database[i].id;
+        index[index_count].position = i;
+        index_count++;
+    }
+
+    // Sort index by key (simple bubble sort)
+    for (int i = 0; i < index_count - 1; i++) {
+        for (int j = 0; j < index_count - i - 1; j++) {
+            if (index[j].key > index[j + 1].key) {
+                IndexEntry temp = index[j];
+                index[j] = index[j + 1];
+                index[j + 1] = temp;
+            }
+        }
+    }
+}
+
+Person* select_by_id_indexed(int id) {
+    // Binary search on index
+    int left = 0, right = index_count - 1;
+
+    while (left <= right) {
+        int mid = (left + right) / 2;
+        if (index[mid].key == id) {
+            return &database[index[mid].position];
+        }
+        if (index[mid].key < id) {
+            left = mid + 1;
+        } else {
+            right = mid - 1;
+        }
+    }
+
+    return NULL;
+}
+
+Performance Comparison:
+  Linear search: O(n) - 100 records = ~50 comparisons average
+  Binary search: O(log n) - 100 records = ~7 comparisons maximum
+
+
+3.2 PHASE 2: SQL MASTERY (WEEKS 3-4)
+─────────────────────────────────────
+
+Goal: Master SQL for querying and manipulating data
+
+Resources:
+──────────
+1. "SQL for Mere Mortals" by John Viescas
+   (Classic textbook, public library)
+
+2. SQLite Tutorial
+   https://www.sqlitetutorial.net/
+   Complete interactive tutorial
+
+3. "Use The Index, Luke" by Markus Winand
+   https://use-the-index-luke.com/
+   Free online book on SQL indexing
+
+4. SQL Practice: SQLZoo
+   https://sqlzoo.net/
+   Interactive SQL exercises
+
+SQL Learning Path:
+──────────────────
+
+Week 3: Basic SQL
+□ SELECT, FROM, WHERE
+□ ORDER BY, LIMIT
+□ Aggregate functions (COUNT, SUM, AVG, MIN, MAX)
+□ GROUP BY, HAVING
+□ DISTINCT
+
+Week 4: Advanced SQL
+□ JOINs (INNER, LEFT, RIGHT, FULL)
+□ Subqueries
+□ CASE expressions
+□ Window functions (ROW_NUMBER, RANK, LAG, LEAD)
+□ Common Table Expressions (WITH)
+
+Practical Exercise 2.1: SQL Query Practice
+───────────────────────────────────────────
+
+Using our lessons.db database:
+
+1. Find all Advanced difficulty lessons:
+
+   SELECT topic, category
+   FROM lessons
+   WHERE difficulty = 3
+   ORDER BY topic;
+
+2. Count lessons per category:
+
+   SELECT category, COUNT(*) as lesson_count
+   FROM lessons
+   GROUP BY category
+   ORDER BY lesson_count DESC;
+
+3. Find lessons in Security category with Expert difficulty:
+
+   SELECT topic, content
+   FROM lessons
+   WHERE category = 'Security' AND difficulty = 4;
+
+4. Get average difficulty per category:
+
+   SELECT category, AVG(difficulty) as avg_difficulty
+   FROM lessons
+   GROUP BY category
+   ORDER BY avg_difficulty DESC;
+
+5. Find lessons containing "database" (case-insensitive):
+
+   SELECT topic, category
+   FROM lessons
+   WHERE content LIKE '%database%' OR topic LIKE '%database%'
+   COLLATE NOCASE;
+
+6. Get most recent 5 lessons:
+
+   SELECT topic, datetime(timestamp, 'unixepoch') as created
+   FROM lessons
+   ORDER BY timestamp DESC
+   LIMIT 5;
+
+
+Practical Exercise 2.2: Complex Queries with JOINs
+───────────────────────────────────────────────────
+
+Using lessons + learning_progress tables:
+
+1. Find lessons user hasn't started:
+
+   SELECT l.topic, l.difficulty
+   FROM lessons l
+   LEFT JOIN learning_progress lp ON l.id = lp.lesson_id
+   WHERE lp.lesson_id IS NULL;
+
+2. Get review schedule for next week:
+
+   SELECT l.topic,
+          datetime(lp.next_review, 'unixepoch') as review_date,
+          lp.confidence_level
+   FROM lessons l
+   JOIN learning_progress lp ON l.id = lp.lesson_id
+   WHERE lp.next_review <= strftime('%s', 'now', '+7 days')
+   ORDER BY lp.next_review;
+
+3. Calculate mastery percentage per category:
+
+   SELECT l.category,
+          COUNT(*) as total_lessons,
+          SUM(CASE WHEN lp.confidence_level = 4 THEN 1 ELSE 0 END) as mastered,
+          ROUND(100.0 * SUM(CASE WHEN lp.confidence_level = 4 THEN 1 ELSE 0 END) / COUNT(*), 2) as mastery_pct
+   FROM lessons l
+   LEFT JOIN learning_progress lp ON l.id = lp.lesson_id
+   GROUP BY l.category
+   ORDER BY mastery_pct DESC;
+
+4. Find lessons reviewed more than 5 times but still not mastered:
+
+   SELECT l.topic, lp.review_count, lp.confidence_level
+   FROM lessons l
+   JOIN learning_progress lp ON l.id = lp.lesson_id
+   WHERE lp.review_count > 5 AND lp.confidence_level < 4
+   ORDER BY lp.review_count DESC;
+
+
+Practical Exercise 2.3: Window Functions
+─────────────────────────────────────────
+
+Advanced SQL features for analytics:
+
+1. Rank lessons by difficulty within each category:
+
+   SELECT topic, category, difficulty,
+          ROW_NUMBER() OVER (PARTITION BY category ORDER BY difficulty DESC) as rank
+   FROM lessons;
+
+2. Calculate running total of lessons added over time:
+
+   SELECT datetime(timestamp, 'unixepoch') as date,
+          topic,
+          ROW_NUMBER() OVER (ORDER BY timestamp) as running_count
+   FROM lessons
+   ORDER BY timestamp;
+
+3. Find lessons with above-average content length per category:
+
+   WITH category_avg AS (
+       SELECT category, AVG(LENGTH(content)) as avg_length
+       FROM lessons
+       GROUP BY category
+   )
+   SELECT l.topic, l.category, LENGTH(l.content) as content_length
+   FROM lessons l
+   JOIN category_avg ca ON l.category = ca.category
+   WHERE LENGTH(l.content) > ca.avg_length
+   ORDER BY l.category, content_length DESC;
+
+
+3.3 PHASE 3: SQLITE INTERNALS (WEEKS 5-6)
+──────────────────────────────────────────
+
+Goal: Understand how SQLite works under the hood
+
+Reading:
+────────
+1. "SQLite Database System" by Sibsankar Haldar
+   Comprehensive book on SQLite internals
+
+2. SQLite Source Code Walkthrough
+   https://www.sqlite.org/codeofconduct.html
+   Well-commented C code
+
+3. "How SQLite Is Tested"
+   https://www.sqlite.org/testing.html
+   Insight into quality assurance
+
+4. SQLite File Format Documentation
+   https://www.sqlite.org/fileformat.html
+
+Key Topics:
+───────────
+□ B-tree structure (how data is stored)
+□ Page cache and buffer management
+□ Query planner and optimizer
+□ Virtual Machine (VDBE) bytecode
+□ Locking and concurrency (file locking)
+□ Journaling modes (DELETE, WAL, MEMORY)
+□ Transaction handling
+
+Practical Exercise 3.1: Examine SQLite File Format
+───────────────────────────────────────────────────
+
+File: examine_db.c
+
+#include <stdio.h>
+#include <stdint.h>
+
+int main() {
+    FILE *fp = fopen("lessons.db", "rb");
+    if (!fp) {
+        perror("Cannot open database");
+        return 1;
+    }
+
+    // Read first 100 bytes (database header)
+    unsigned char header[100];
+    fread(header, 1, 100, fp);
+
+    // SQLite format is well-documented
+    printf("Magic string: %.16s\n", header);  // "SQLite format 3\0"
+
+    uint16_t page_size = (header[16] << 8) | header[17];
+    printf("Page size: %u bytes\n", page_size);
+
+    unsigned char file_format_write = header[18];
+    printf("File format write version: %u\n", file_format_write);
+
+    unsigned char file_format_read = header[19];
+    printf("File format read version: %u\n", file_format_read);
+
+    uint32_t page_count =
+        (header[28] << 24) | (header[29] << 16) |
+        (header[30] << 8) | header[31];
+    printf("Database size (pages): %u\n", page_count);
+    printf("Database size (bytes): %u\n", page_count * page_size);
+
+    fclose(fp);
+    return 0;
+}
+
+Output interpretation:
+  Page size: 4096 bytes (typical, OS page size)
+  Total size: page_count * page_size
+  Format versions: 1 = legacy, 2 = WAL
+
+
+Practical Exercise 3.2: Query Plan Analysis
+────────────────────────────────────────────
+
+Using EXPLAIN QUERY PLAN to understand how SQLite executes queries:
+
+1. Without index:
+
+   EXPLAIN QUERY PLAN
+   SELECT * FROM lessons WHERE category = 'Security';
+
+   Output:
+   SCAN TABLE lessons
+
+   Meaning: Full table scan, O(n) complexity
+
+2. Create index and re-check:
+
+   CREATE INDEX idx_category ON lessons(category);
+
+   EXPLAIN QUERY PLAN
+   SELECT * FROM lessons WHERE category = 'Security';
+
+   Output:
+   SEARCH TABLE lessons USING INDEX idx_category (category=?)
+
+   Meaning: Index seek, O(log n) complexity
+
+3. Complex query with JOIN:
+
+   EXPLAIN QUERY PLAN
+   SELECT l.topic, lp.confidence_level
+   FROM lessons l
+   JOIN learning_progress lp ON l.id = lp.lesson_id
+   WHERE lp.confidence_level < 4;
+
+   Output shows:
+   - Index used for JOIN (if foreign key indexed)
+   - Filter applied (confidence_level < 4)
+   - Order of table access
+
+
+Practical Exercise 3.3: Write Your Own B-tree (Simplified)
+───────────────────────────────────────────────────────────
+
+Understand how databases store data with a simple B-tree implementation:
+
+File: btree_simple.c
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define ORDER 3  // Max children per node
+
+typedef struct BTreeNode {
+    int keys[ORDER - 1];
+    char values[ORDER - 1][100];
+    struct BTreeNode *children[ORDER];
+    int num_keys;
+    int is_leaf;
+} BTreeNode;
+
+BTreeNode* create_node(int is_leaf) {
+    BTreeNode *node = malloc(sizeof(BTreeNode));
+    node->num_keys = 0;
+    node->is_leaf = is_leaf;
+    for (int i = 0; i < ORDER; i++) {
+        node->children[i] = NULL;
+    }
+    return node;
+}
+
+void insert_non_full(BTreeNode *node, int key, const char *value) {
+    int i = node->num_keys - 1;
+
+    if (node->is_leaf) {
+        // Shift keys to make room
+        while (i >= 0 && node->keys[i] > key) {
+            node->keys[i + 1] = node->keys[i];
+            strcpy(node->values[i + 1], node->values[i]);
+            i--;
+        }
+
+        node->keys[i + 1] = key;
+        strcpy(node->values[i + 1], value);
+        node->num_keys++;
+    } else {
+        // Find child to descend to
+        while (i >= 0 && node->keys[i] > key) {
+            i--;
+        }
+        i++;
+
+        // If child is full, split it
+        if (node->children[i]->num_keys == ORDER - 1) {
+            // Split child (omitted for brevity)
+        }
+
+        insert_non_full(node->children[i], key, value);
+    }
+}
+
+void search(BTreeNode *node, int key) {
+    int i = 0;
+    while (i < node->num_keys && key > node->keys[i]) {
+        i++;
+    }
+
+    if (i < node->num_keys && key == node->keys[i]) {
+        printf("Found: %s\n", node->values[i]);
+        return;
+    }
+
+    if (node->is_leaf) {
+        printf("Not found\n");
+        return;
+    }
+
+    search(node->children[i], key);
+}
+
+void traverse(BTreeNode *node) {
+    for (int i = 0; i < node->num_keys; i++) {
+        if (!node->is_leaf) {
+            traverse(node->children[i]);
+        }
+        printf("Key: %d, Value: %s\n", node->keys[i], node->values[i]);
+    }
+
+    if (!node->is_leaf) {
+        traverse(node->children[node->num_keys]);
+    }
+}
+
+int main() {
+    BTreeNode *root = create_node(1);  // Start with leaf
+
+    insert_non_full(root, 10, "Lesson 10");
+    insert_non_full(root, 20, "Lesson 20");
+    insert_non_full(root, 5, "Lesson 5");
+    insert_non_full(root, 6, "Lesson 6");
+    insert_non_full(root, 15, "Lesson 15");
+
+    printf("B-tree contents:\n");
+    traverse(root);
+
+    printf("\nSearching for key 15:\n");
+    search(root, 15);
+
+    printf("\nSearching for key 100:\n");
+    search(root, 100);
+
+    return 0;
+}
+
+Learning points:
+- B-trees keep data sorted
+- Search is O(log n)
+- Insertion requires node splitting when full
+- Real SQLite uses B+ trees (data only in leaves)
+
+
+3.4 PHASE 4: ADVANCED DATABASE CONCEPTS (WEEKS 7-8)
+────────────────────────────────────────────────────
+
+Goal: Master transaction management, concurrency, and optimization
+
+Reading:
+────────
+1. "Transaction Processing" by Jim Gray and Andreas Reuter
+   Classic text on ACID properties
+
+2. "Database Internals" by Alex Petrov (2019)
+   Modern book covering storage engines
+
+3. SQLite WAL Mode Documentation
+   https://www.sqlite.org/wal.html
+
+4. CMU 15-445 Lectures on Concurrency Control
+   https://www.youtube.com/playlist?list=PLSE8ODhjZXjbohkNBWQs_otTrBTrjyohi
+
+Key Topics:
+───────────
+□ ACID properties in depth
+□ Isolation levels (Read Uncommitted, Read Committed, Repeatable Read, Serializable)
+□ Locking protocols (2PL, S2PL)
+□ MVCC (Multi-Version Concurrency Control)
+□ Deadlock detection and prevention
+□ WAL (Write-Ahead Logging)
+□ Crash recovery
+
+Practical Exercise 4.1: Transaction Isolation Levels
+─────────────────────────────────────────────────────
+
+Experiment with different isolation levels:
+
+-- Terminal 1
+BEGIN TRANSACTION;
+UPDATE lessons SET difficulty = 4 WHERE id = 1;
+-- Don't commit yet
+
+-- Terminal 2 (different connection)
+-- What do you see?
+SELECT difficulty FROM lessons WHERE id = 1;
+
+-- Result depends on isolation level:
+-- READ UNCOMMITTED: Sees difficulty = 4 (dirty read!)
+-- READ COMMITTED: Sees old value until Terminal 1 commits
+-- REPEATABLE READ: Sees old value, consistent snapshot
+-- SERIALIZABLE: May block or error (conflict)
+
+SQLite Default: Serializable (strictest)
+Most databases default: Read Committed
+
+
+Practical Exercise 4.2: Implementing WAL Mode
+──────────────────────────────────────────────
+
+Enable Write-Ahead Logging for better concurrency:
+
+File: enable_wal.c
+
+#include <stdio.h>
+#include <sqlite3.h>
+
+int main() {
+    sqlite3 *db;
+    sqlite3_open("lessons.db", &db);
+
+    // Check current journal mode
+    sqlite3_stmt *stmt;
+    sqlite3_prepare_v2(db, "PRAGMA journal_mode;", -1, &stmt, NULL);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        printf("Current journal mode: %s\n", sqlite3_column_text(stmt, 0));
+    }
+    sqlite3_finalize(stmt);
+
+    // Enable WAL mode
+    char *err;
+    int rc = sqlite3_exec(db, "PRAGMA journal_mode=WAL;", NULL, NULL, &err);
+    if (rc != SQLITE_OK) {
+        printf("Error: %s\n", err);
+        sqlite3_free(err);
+    } else {
+        printf("WAL mode enabled\n");
+    }
+
+    // Verify
+    sqlite3_prepare_v2(db, "PRAGMA journal_mode;", -1, &stmt, NULL);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        printf("New journal mode: %s\n", sqlite3_column_text(stmt, 0));
+    }
+    sqlite3_finalize(stmt);
+
+    sqlite3_close(db);
+    return 0;
+}
+
+Benefits of WAL mode:
+- Readers don't block writers
+- Writers don't block readers
+- Better concurrency
+- Faster writes (sequential)
+
+Drawbacks:
+- Multiple files (db, wal, shm)
+- Checkpoint overhead
+- Not suitable for network filesystems
+
+
+Practical Exercise 4.3: Implementing Connection Pooling
+────────────────────────────────────────────────────────
+
+For multi-threaded applications:
+
+File: connection_pool.c
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <sqlite3.h>
+
+#define POOL_SIZE 5
+
+typedef struct {
+    sqlite3 *connections[POOL_SIZE];
+    int available[POOL_SIZE];
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+} ConnectionPool;
+
+ConnectionPool* pool_create(const char *db_path) {
+    ConnectionPool *pool = malloc(sizeof(ConnectionPool));
+    pthread_mutex_init(&pool->lock, NULL);
+    pthread_cond_init(&pool->cond, NULL);
+
+    for (int i = 0; i < POOL_SIZE; i++) {
+        if (sqlite3_open(db_path, &pool->connections[i]) != SQLITE_OK) {
+            fprintf(stderr, "Cannot open database\n");
+            return NULL;
+        }
+        pool->available[i] = 1;  // Available
+    }
+
+    return pool;
+}
+
+sqlite3* pool_acquire(ConnectionPool *pool) {
+    pthread_mutex_lock(&pool->lock);
+
+    while (1) {
+        for (int i = 0; i < POOL_SIZE; i++) {
+            if (pool->available[i]) {
+                pool->available[i] = 0;  // Mark as in use
+                pthread_mutex_unlock(&pool->lock);
+                return pool->connections[i];
+            }
+        }
+
+        // No connections available, wait
+        pthread_cond_wait(&pool->cond, &pool->lock);
+    }
+}
+
+void pool_release(ConnectionPool *pool, sqlite3 *conn) {
+    pthread_mutex_lock(&pool->lock);
+
+    for (int i = 0; i < POOL_SIZE; i++) {
+        if (pool->connections[i] == conn) {
+            pool->available[i] = 1;  // Mark as available
+            pthread_cond_signal(&pool->cond);  // Wake waiting thread
+            break;
+        }
+    }
+
+    pthread_mutex_unlock(&pool->lock);
+}
+
+void pool_destroy(ConnectionPool *pool) {
+    for (int i = 0; i < POOL_SIZE; i++) {
+        sqlite3_close(pool->connections[i]);
+    }
+    pthread_mutex_destroy(&pool->lock);
+    pthread_cond_destroy(&pool->cond);
+    free(pool);
+}
+
+// Usage example
+void* worker_thread(void *arg) {
+    ConnectionPool *pool = (ConnectionPool *)arg;
+
+    sqlite3 *db = pool_acquire(pool);
+
+    // Use connection
+    sqlite3_exec(db, "SELECT COUNT(*) FROM lessons;", NULL, NULL, NULL);
+
+    pool_release(pool, db);
+
+    return NULL;
+}
+
+int main() {
+    ConnectionPool *pool = pool_create("lessons.db");
+
+    pthread_t threads[10];
+    for (int i = 0; i < 10; i++) {
+        pthread_create(&threads[i], NULL, worker_thread, pool);
+    }
+
+    for (int i = 0; i < 10; i++) {
+        pthread_join(threads[i], NULL);
+    }
+
+    pool_destroy(pool);
+    return 0;
+}
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║           PART IV: LEARNING GAME ANALYSIS & ENHANCEMENT                   ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+4. REVIEWING THE LEARNING GAME
+═══════════════════════════════
+
+4.1 CURRENT GAME STRUCTURE ANALYSIS
+────────────────────────────────────
+
+The learning game contains 10 progressive lessons:
+
+Level 1: Welcome to C Programming
+  ✓ Teaches: main() function, printf()
+  ✓ Big picture: C for systems programming
+  ✓ Challenge: Modify Hello World
+
+  Pedagogical strength: Immediate success (running first program)
+  Improvement opportunity: Add explanation of compilation process
+
+Level 2: Variables and Data Types
+  ✓ Teaches: int, float, double, char
+  ✓ Memory model: Variables as "labeled boxes"
+  ✓ Challenge: Create and print variables
+
+  Pedagogical strength: Concrete metaphor (boxes)
+  Improvement: Add sizeof() to show actual memory usage
+
+Level 3: Pointers - The Heart of C
+  ✓ Teaches: &, *, pointer arithmetic
+  ✓ Memory model: Memory as array of bytes
+  ✓ Challenge: Swap values using pointers
+
+  Pedagogical strength: Connects to memory model
+  Improvement: Add visualization of memory addresses
+
+  Suggested visualization:
+    int x = 42;
+    int *ptr = &x;
+
+    Memory:
+    Address    | Value      | Variable
+    -----------+------------+---------
+    0x7fff5000 | 42         | x
+    0x7fff5008 | 0x7fff5000 | ptr
+
+Level 4: Arrays and Memory Layout
+  ✓ Teaches: Array indexing, contiguous memory
+  ✓ Insight: arr[i] ≡ *(arr + i)
+  ✓ Challenge: Sum array elements
+
+  Pedagogical strength: Shows pointer/array equivalence
+  Improvement: Diagram memory layout
+
+  [10][20][30][40][50]
+   ^
+   arr (points to first element)
+
+   arr[2] same as *(arr + 2)
+
+Level 5: Dynamic Memory Allocation
+  ✓ Teaches: malloc(), free(), calloc(), realloc()
+  ✓ Rule: Every malloc needs matching free
+  ✓ Challenge: Fibonacci array with malloc
+
+  Pedagogical strength: Real-world use case
+  Improvement: Add memory leak detection exercise
+
+Level 6: Structures - Custom Data Types
+  ✓ Teaches: struct, typedef, -> operator
+  ✓ Use cases: Database rows, network packets
+  ✓ Challenge: Book structure with search function
+
+  Pedagogical strength: Direct connection to databases
+  Improvement: Show memory layout of struct (padding)
+
+Level 7: File I/O - Persistence
+  ✓ Teaches: fopen(), fclose(), fprintf(), fscanf()
+  ✓ Binary I/O: fread(), fwrite()
+  ✓ Challenge: Save/load student records
+
+  Pedagogical strength: Foundation for database storage
+  Improvement: Add error handling patterns
+
+Level 8: Building a Simple Database
+  ✓ Teaches: CRUD operations, in-memory storage
+  ✓ Big picture: Simplified SQLite
+  ✓ Challenge: Delete, search, save/load functions
+
+  Pedagogical strength: Capstone that combines all previous lessons
+  Improvement: Add transaction concept (all-or-nothing)
+
+Level 9: Linked Lists - Dynamic Data
+  ✓ Teaches: Node structure, pointers to next
+  ✓ Trade-offs: Dynamic size vs. no random access
+  ✓ Challenge: Insert at end, delete, reverse
+
+  Pedagogical strength: Foundation for advanced data structures
+  Improvement: Compare with arrays visually
+
+  Array: [1][2][3][4]  (contiguous)
+
+  Linked List:
+  [1|•]→[2|•]→[3|•]→[4|NULL]  (scattered in memory)
+
+Level 10: Hash Tables - Fast Lookup
+  ✓ Teaches: Hash functions, collision handling
+  ✓ Real-world: PostgreSQL, Redis
+  ✓ Challenge: Implement get(), delete()
+
+  Pedagogical strength: Connects to real databases
+  Improvement: Show collision handling visually
+
+
+4.2 PEDAGOGICAL EFFECTIVENESS ANALYSIS
+───────────────────────────────────────
+
+Strengths:
+──────────
+✓ Progressive difficulty (each lesson builds on previous)
+✓ "Big picture thinking" (connects to real-world systems)
+✓ Hands-on challenges (active learning)
+✓ Solutions provided (reduces frustration)
+✓ Spaced repetition (scientifically-proven retention)
+✓ Confidence tracking (personalized learning path)
+
+Weaknesses to Address:
+──────────────────────
+✗ No interactive coding environment (only shows examples)
+✗ No automatic solution checking
+✗ Limited visualization (ASCII art only)
+✗ No debugging practice
+✗ Missing: Common pitfalls and how to avoid them
+
+Recommended Enhancements:
+─────────────────────────
+
+1. Add Interactive Coding Challenges
+
+   Instead of just showing solutions, let users write code:
+
+   - Integrate with: https://github.com/benhoyt/ioccc-obfuscate (C interpreter)
+   - Or: Create exercise files that compile and test
+
+   Example:
+
+   File: exercises/level_3_pointers.c
+
+   #include <stdio.h>
+   #include <assert.h>
+
+   // TODO: Implement this function
+   void swap(int *a, int *b) {
+       // Your code here
+   }
+
+   int main() {
+       int x = 10, y = 20;
+       swap(&x, &y);
+       assert(x == 20 && y == 10);  // Test
+       printf("Success! x=%d, y=%d\n", x, y);
+       return 0;
+   }
+
+   Compile: gcc level_3_pointers.c -o level_3
+   Run: ./level_3
+   Output: Success! x=20, y=10
+
+2. Add Visualization Tools
+
+   Create ASCII diagrams automatically:
+
+   void visualize_pointer(int *ptr, int value) {
+       printf("Memory Visualization:\n");
+       printf("┌────────────┬──────────┬──────────┐\n");
+       printf("│ Address    │ Value    │ Variable │\n");
+       printf("├────────────┼──────────┼──────────┤\n");
+       printf("│ %p │ %-8d │ value    │\n", (void*)&value, value);
+       printf("│ %p │ %p │ ptr      │\n", (void*)&ptr, (void*)ptr);
+       printf("└────────────┴──────────┴──────────┘\n");
+       printf("\nptr points to value\n");
+   }
+
+3. Add Common Mistakes Module
+
+   Level 3.5: Common Pointer Pitfalls
+
+   Mistake 1: Dereferencing NULL
+   int *ptr = NULL;
+   printf("%d\n", *ptr);  // CRASH!
+
+   Fix: Always check before dereferencing
+   if (ptr != NULL) {
+       printf("%d\n", *ptr);
+   }
+
+   Mistake 2: Dangling Pointer
+   int *ptr = malloc(sizeof(int));
+   *ptr = 42;
+   free(ptr);
+   printf("%d\n", *ptr);  // Undefined behavior!
+
+   Fix: Set to NULL after free
+   free(ptr);
+   ptr = NULL;
+
+   Mistake 3: Memory Leak
+   int *ptr = malloc(100);
+   ptr = malloc(200);  // Lost reference to first allocation!
+
+   Fix: Free before reassigning
+   free(ptr);
+   ptr = malloc(200);
+
+4. Add Debugging Exercises
+
+   Level 4.5: Debugging with GDB
+
+   File: buggy_program.c (intentional bug)
+
+   #include <stdio.h>
+
+   int main() {
+       int arr[5] = {1, 2, 3, 4, 5};
+       for (int i = 0; i <= 5; i++) {  // BUG: should be i < 5
+           printf("%d\n", arr[i]);
+       }
+       return 0;
+   }
+
+   Exercise:
+   1. Compile: gcc -g buggy_program.c -o buggy
+   2. Run: ./buggy (observe crash or garbage value)
+   3. Debug: gdb buggy
+   4. Commands:
+      (gdb) break main
+      (gdb) run
+      (gdb) print i
+      (gdb) print arr[i]
+      (gdb) continue
+   5. Find and fix the bug
+
+
+4.3 ENHANCED LESSON PLAN INTEGRATION
+─────────────────────────────────────
+
+Add 5 new intermediate lessons between current levels:
+
+New Level 3.5: Debugging Techniques
+  Topics: GDB basics, printf debugging, Valgrind
+  Challenge: Debug provided buggy programs
+
+New Level 5.5: Memory Management Patterns
+  Topics: Arena allocators, object pools
+  Challenge: Implement simple arena allocator
+
+New Level 7.5: Error Handling
+  Topics: errno, perror, return codes
+  Challenge: Add robust error handling to file I/O
+
+New Level 8.5: Testing
+  Topics: Assert, unit testing, test-driven development
+  Challenge: Write tests for simple database
+
+New Level 9.5: Performance Analysis
+  Topics: Time complexity, profiling with gprof
+  Challenge: Compare array vs linked list performance
+
+
+4.4 GAMIFICATION ENHANCEMENTS
+──────────────────────────────
+
+Add motivational elements to increase engagement:
+
+1. Achievement System
+
+   typedef struct {
+       char name[50];
+       char description[100];
+       int earned;
+   } Achievement;
+
+   Achievement achievements[] = {
+       {"First Steps", "Complete Level 1", 0},
+       {"Pointer Master", "Complete all pointer lessons", 0},
+       {"Speed Demon", "Complete 5 lessons in one day", 0},
+       {"Consistency King", "7-day streak", 0},
+       {"Perfectionist", "Score 100% on 10 challenges", 0}
+   };
+
+2. Progress Bar
+
+   void show_progress() {
+       int completed = count_completed_lessons();
+       int total = count_total_lessons();
+       int percent = (completed * 100) / total;
+
+       printf("\nOverall Progress: [");
+       for (int i = 0; i < 50; i++) {
+           if (i < percent / 2) {
+               printf("█");
+           } else {
+               printf("░");
+           }
+       }
+       printf("] %d%%\n", percent);
+   }
+
+3. Streak Counter
+
+   int calculate_streak(sqlite3 *db) {
+       const char *sql =
+           "SELECT COUNT(*) FROM ("
+           "  SELECT DATE(last_reviewed, 'unixepoch') as day "
+           "  FROM learning_progress "
+           "  WHERE last_reviewed > strftime('%s', 'now', '-30 days') "
+           "  GROUP BY day "
+           "  HAVING day >= DATE('now', '-' || ? || ' days')"
+           ");";
+
+       // Count consecutive days
+       int streak = 0;
+       // ... implementation
+       return streak;
+   }
+
+4. Leaderboard (Multi-User)
+
+   CREATE TABLE leaderboard (
+       user_id INTEGER PRIMARY KEY,
+       username TEXT NOT NULL,
+       total_lessons_completed INTEGER,
+       current_streak INTEGER,
+       longest_streak INTEGER,
+       total_review_count INTEGER,
+       last_active INTEGER
+   );
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║           PART V: PROGRESSIVE PROJECT-BASED EXERCISES                      ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+5. HANDS-ON PROJECTS TO BUILD MASTERY
+══════════════════════════════════════
+
+5.1 BEGINNER PROJECTS (WEEKS 1-4)
+──────────────────────────────────
+
+Project 1: Temperature Converter
+─────────────────────────────────
+Difficulty: Beginner
+Time: 2-3 hours
+Skills: Basic I/O, functions, control flow
+
+Requirements:
+  - Convert between Celsius, Fahrenheit, Kelvin
+  - Interactive menu
+  - Input validation
+  - Save conversion history to file
+
+Starter code:
+
+#include <stdio.h>
+
+double celsius_to_fahrenheit(double c) {
+    return (c * 9.0 / 5.0) + 32.0;
+}
+
+// TODO: Implement other conversions
+
+int main() {
+    // TODO: Implement menu and logic
+    return 0;
+}
+
+Learning objectives:
+  ✓ Function design and implementation
+  ✓ User input handling
+  ✓ File I/O for persistence
+  ✓ Basic error handling
+
+
+Project 2: Student Grade Manager
+─────────────────────────────────
+Difficulty: Beginner
+Time: 4-6 hours
+Skills: Structures, arrays, file I/O
+
+Requirements:
+  - Store student records (name, ID, grades)
+  - Calculate GPA
+  - Find top performers
+  - Save/load from binary file
+  - Search by student ID
+
+Data structure:
+
+typedef struct {
+    int id;
+    char name[50];
+    double grades[5];  // 5 courses
+    double gpa;
+} Student;
+
+Features to implement:
+  1. Add new student
+  2. Update grades
+  3. Calculate GPA (4.0 scale)
+  4. List all students sorted by GPA
+  5. Save to file (students.dat)
+  6. Load from file on startup
+
+Learning objectives:
+  ✓ Structure design
+  ✓ Array manipulation
+  ✓ Sorting algorithms
+  ✓ Binary file I/O
+  ✓ Data persistence
+
+
+Project 3: To-Do List Application
+──────────────────────────────────
+Difficulty: Beginner-Intermediate
+Time: 6-8 hours
+Skills: Dynamic memory, linked lists, file I/O
+
+Requirements:
+  - Add/remove/complete tasks
+  - Set priority (High/Medium/Low)
+  - Set due dates
+  - Save to text file
+  - Use linked list for storage
+
+Data structure:
+
+typedef struct Task {
+    int id;
+    char description[200];
+    int priority;  // 1=High, 2=Medium, 3=Low
+    time_t due_date;
+    int completed;
+    struct Task *next;
+} Task;
+
+Features:
+  1. Add task
+  2. Mark as completed
+  3. Delete task
+  4. List all tasks (sorted by priority, then due date)
+  5. List overdue tasks
+  6. Save/load from todo.txt
+
+Learning objectives:
+  ✓ Linked list implementation
+  ✓ Dynamic memory management
+  ✓ Time handling (time_t, struct tm)
+  ✓ Text file parsing
+  ✓ Sorting linked lists
+
+
+5.2 INTERMEDIATE PROJECTS (WEEKS 5-8)
+──────────────────────────────────────
+
+Project 4: Key-Value Store (Mini-Redis)
+────────────────────────────────────────
+Difficulty: Intermediate
+Time: 10-15 hours
+Skills: Hash tables, dynamic memory, file I/O
+
+Requirements:
+  - Implement hash table with chaining
+  - Support SET, GET, DELETE, EXISTS commands
+  - Persistence (save/load from file)
+  - Handle collisions efficiently
+  - Support multiple data types (string, int)
+
+Data structures:
+
+#define TABLE_SIZE 1000
+
+typedef struct Entry {
+    char *key;
+    char *value;
+    struct Entry *next;
+} Entry;
+
+typedef struct {
+    Entry *buckets[TABLE_SIZE];
+    int count;
+} HashTable;
+
+Functions to implement:
+
+HashTable* ht_create();
+void ht_set(HashTable *ht, const char *key, const char *value);
+char* ht_get(HashTable *ht, const char *key);
+void ht_delete(HashTable *ht, const char *key);
+int ht_exists(HashTable *ht, const char *key);
+void ht_save(HashTable *ht, const char *filename);
+void ht_load(HashTable *ht, const char *filename);
+void ht_destroy(HashTable *ht);
+
+Hash function:
+
+unsigned int hash(const char *key) {
+    unsigned int hash = 5381;
+    int c;
+
+    while ((c = *key++)) {
+        hash = ((hash << 5) + hash) + c;  // hash * 33 + c
+    }
+
+    return hash % TABLE_SIZE;
+}
+
+Interactive interface:
+
+> SET name "Alice"
+OK
+> GET name
+"Alice"
+> SET age 30
+OK
+> EXISTS name
+true
+> DELETE name
+OK
+> GET name
+(nil)
+> SAVE data.kv
+Saved 1 keys to data.kv
+> QUIT
+
+Learning objectives:
+  ✓ Hash table implementation
+  ✓ Collision handling (chaining)
+  ✓ Dynamic string allocation
+  ✓ Command parsing
+  ✓ Serialization/deserialization
+
+
+Project 5: CSV Parser and Analyzer
+───────────────────────────────────
+Difficulty: Intermediate
+Time: 8-12 hours
+Skills: String parsing, dynamic arrays, file I/O
+
+Requirements:
+  - Parse CSV files
+  - Handle quoted fields, escaped commas
+  - Calculate statistics (sum, average, min, max)
+  - Support filtering and sorting
+  - Export results to new CSV
+
+Example CSV:
+
+name,age,salary,department
+"Alice Smith",30,75000,Engineering
+"Bob Jones",25,65000,Marketing
+"Charlie Brown",35,85000,Engineering
+
+Features:
+  1. Parse CSV into structures
+  2. Calculate average salary by department
+  3. Find min/max salary
+  4. Filter rows (e.g., age > 30)
+  5. Sort by column
+  6. Export filtered/sorted results
+
+Data structure:
+
+typedef struct {
+    char **headers;
+    int num_columns;
+    char ***data;  // Array of rows, each row is array of strings
+    int num_rows;
+} CSVData;
+
+Functions:
+
+CSVData* csv_parse(const char *filename);
+void csv_print(CSVData *csv);
+double csv_column_average(CSVData *csv, const char *column_name);
+void csv_filter(CSVData *csv, const char *column, const char *value);
+void csv_sort(CSVData *csv, const char *column);
+void csv_export(CSVData *csv, const char *filename);
+void csv_free(CSVData *csv);
+
+Learning objectives:
+  ✓ Complex string parsing
+  ✓ Dynamic 2D arrays
+  ✓ Data transformation
+  ✓ Memory management (avoiding leaks)
+  ✓ Generic sorting algorithms
+
+
+Project 6: SQLite-like Database (Extended)
+───────────────────────────────────────────
+Difficulty: Intermediate-Advanced
+Time: 20-30 hours
+Skills: B-trees, query parsing, file formats
+
+Requirements:
+  - Extend our lessons database
+  - Implement custom B-tree storage
+  - Simple SQL parser (SELECT, INSERT, WHERE)
+  - Transaction support (BEGIN, COMMIT, ROLLBACK)
+  - Index management
+
+Architecture:
+
+┌─────────────────────────────────────┐
+│         SQL Parser                  │
+│  (Parse SELECT, INSERT, etc.)       │
+└─────────────────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────┐
+│      Query Executor                 │
+│  (Execute query plan)               │
+└─────────────────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────┐
+│      Storage Engine                 │
+│  (B-tree, page management)          │
+└─────────────────────────────────────┘
+
+Phase 1: Simple SQL Parser
+
+typedef enum {
+    CMD_SELECT,
+    CMD_INSERT,
+    CMD_UPDATE,
+    CMD_DELETE
+} CommandType;
+
+typedef struct {
+    CommandType type;
+    char table[50];
+    char **columns;
+    int num_columns;
+    char where_clause[200];
+} Query;
+
+Query* parse_sql(const char *sql);
+
+Example:
+  Input: "SELECT name, age FROM students WHERE age > 25"
+  Output: Query {
+    type = CMD_SELECT,
+    table = "students",
+    columns = ["name", "age"],
+    num_columns = 2,
+    where_clause = "age > 25"
+  }
+
+Phase 2: B-tree Storage Engine
+
+typedef struct BTreeNode {
+    int is_leaf;
+    int num_keys;
+    int keys[ORDER - 1];
+    void *values[ORDER - 1];
+    struct BTreeNode *children[ORDER];
+} BTreeNode;
+
+typedef struct {
+    BTreeNode *root;
+    int (*compare)(const void *a, const void *b);
+} BTree;
+
+BTree* btree_create(int (*cmp)(const void*, const void*));
+void btree_insert(BTree *tree, int key, void *value);
+void* btree_search(BTree *tree, int key);
+void btree_delete(BTree *tree, int key);
+void btree_destroy(BTree *tree);
+
+Phase 3: Transaction Support
+
+typedef struct {
+    BTree *data;
+    BTree *undo_log;
+    int in_transaction;
+} TransactionManager;
+
+void txn_begin(TransactionManager *txn);
+void txn_commit(TransactionManager *txn);
+void txn_rollback(TransactionManager *txn);
+
+Learning objectives:
+  ✓ Lexical analysis and parsing
+  ✓ Tree data structures (B-trees)
+  ✓ Transaction semantics (ACID)
+  ✓ File-based storage
+  ✓ Complex system design
+
+
+5.3 ADVANCED PROJECTS (WEEKS 9-12)
+───────────────────────────────────
+
+Project 7: Multi-Threaded Web Server
+─────────────────────────────────────
+Difficulty: Advanced
+Time: 30-40 hours
+Skills: Networking, threads, HTTP protocol
+
+Requirements:
+  - HTTP/1.1 server
+  - Thread pool for concurrent requests
+  - Serve static files
+  - RESTful API for lesson database
+  - GET, POST, PUT, DELETE support
+
+Architecture:
+
+Main Thread:
+  - Listen on port 8080
+  - Accept connections
+  - Dispatch to worker threads
+
+Worker Threads (Thread Pool):
+  - Parse HTTP request
+  - Route to handler
+  - Generate HTTP response
+  - Send to client
+
+HTTP Request Parsing:
+
+typedef struct {
+    char method[10];    // GET, POST, etc.
+    char path[256];     // /api/lessons/1
+    char version[10];   // HTTP/1.1
+    char *headers[20];
+    int num_headers;
+    char *body;
+    size_t body_length;
+} HTTPRequest;
+
+HTTPRequest* parse_request(const char *raw_request);
+
+HTTP Response Generation:
+
+typedef struct {
+    int status_code;    // 200, 404, 500
+    char *headers[20];
+    int num_headers;
+    char *body;
+    size_t body_length;
+} HTTPResponse;
+
+char* serialize_response(HTTPResponse *resp);
+
+RESTful API Endpoints:
+
+GET /api/lessons
+  → Return all lessons as JSON
+
+GET /api/lessons/:id
+  → Return specific lesson
+
+POST /api/lessons
+  Body: {"topic": "...", "category": "...", "difficulty": 3, "content": "..."}
+  → Create new lesson
+
+PUT /api/lessons/:id
+  Body: {"difficulty": 4}
+  → Update lesson
+
+DELETE /api/lessons/:id
+  → Delete lesson
+
+Example implementation:
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <pthread.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+
+#define PORT 8080
+#define THREAD_POOL_SIZE 10
+
+typedef struct {
+    int client_socket;
+} Task;
+
+typedef struct {
+    Task queue[100];
+    int front, rear, count;
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+} TaskQueue;
+
+void* worker_thread(void *arg) {
+    TaskQueue *queue = (TaskQueue *)arg;
+
+    while (1) {
+        pthread_mutex_lock(&queue->lock);
+
+        while (queue->count == 0) {
+            pthread_cond_wait(&queue->cond, &queue->lock);
+        }
+
+        Task task = queue->queue[queue->front];
+        queue->front = (queue->front + 1) % 100;
+        queue->count--;
+
+        pthread_mutex_unlock(&queue->lock);
+
+        // Handle request
+        handle_client(task.client_socket);
+        close(task.client_socket);
+    }
+
+    return NULL;
+}
+
+void handle_client(int client_socket) {
+    char buffer[4096];
+    ssize_t bytes_read = read(client_socket, buffer, sizeof(buffer) - 1);
+    if (bytes_read <= 0) return;
+
+    buffer[bytes_read] = '\0';
+
+    // Parse HTTP request
+    HTTPRequest *req = parse_request(buffer);
+
+    // Route to handler
+    HTTPResponse *resp;
+    if (strcmp(req->method, "GET") == 0 && strcmp(req->path, "/api/lessons") == 0) {
+        resp = handle_get_lessons();
+    } else if (strcmp(req->method, "GET") == 0 && strstr(req->path, "/api/lessons/")) {
+        int id = atoi(req->path + strlen("/api/lessons/"));
+        resp = handle_get_lesson(id);
+    } else {
+        resp = create_404_response();
+    }
+
+    // Send response
+    char *response_str = serialize_response(resp);
+    write(client_socket, response_str, strlen(response_str));
+
+    free(response_str);
+    free_response(resp);
+    free_request(req);
+}
+
+int main() {
+    int server_socket = socket(AF_INET, SOCK_STREAM, 0);
+
+    struct sockaddr_in server_addr = {
+        .sin_family = AF_INET,
+        .sin_addr.s_addr = INADDR_ANY,
+        .sin_port = htons(PORT)
+    };
+
+    bind(server_socket, (struct sockaddr*)&server_addr, sizeof(server_addr));
+    listen(server_socket, 10);
+
+    printf("Server listening on port %d\n", PORT);
+
+    // Create thread pool
+    pthread_t threads[THREAD_POOL_SIZE];
+    TaskQueue queue = {0};
+    pthread_mutex_init(&queue.lock, NULL);
+    pthread_cond_init(&queue.cond, NULL);
+
+    for (int i = 0; i < THREAD_POOL_SIZE; i++) {
+        pthread_create(&threads[i], NULL, worker_thread, &queue);
+    }
+
+    // Accept connections
+    while (1) {
+        int client_socket = accept(server_socket, NULL, NULL);
+
+        pthread_mutex_lock(&queue.lock);
+        queue.queue[queue.rear] = (Task){.client_socket = client_socket};
+        queue.rear = (queue.rear + 1) % 100;
+        queue.count++;
+        pthread_cond_signal(&queue.cond);
+        pthread_mutex_unlock(&queue.lock);
+    }
+
+    return 0;
+}
+
+Compile:
+  gcc -pthread web_server.c -lsqlite3 -o web_server
+
+Run:
+  ./web_server
+
+Test:
+  curl http://localhost:8080/api/lessons
+  curl http://localhost:8080/api/lessons/1
+
+Learning objectives:
+  ✓ Socket programming
+  ✓ HTTP protocol
+  ✓ Multi-threading
+  ✓ Thread pools
+  ✓ Concurrent data access
+  ✓ RESTful API design
+
+
+Project 8: Database Replication System
+───────────────────────────────────────
+Difficulty: Advanced
+Time: 40-50 hours
+Skills: Networking, consensus, distributed systems
+
+Requirements:
+  - Master-slave replication
+  - Write-ahead log (WAL)
+  - Automatic failover
+  - Read from slaves
+  - Write to master only
+
+Architecture:
+
+┌────────────┐      Replication      ┌────────────┐
+│   Master   │ ───────────────────→  │  Slave 1   │
+│  (R/W)     │                       │  (R only)  │
+└────────────┘                       └────────────┘
+      │
+      │ Replication
+      ▼
+┌────────────┐
+│  Slave 2   │
+│  (R only)  │
+└────────────┘
+
+Components:
+
+1. Write-Ahead Log
+
+typedef struct {
+    int64_t lsn;  // Log Sequence Number
+    char operation[10];  // INSERT, UPDATE, DELETE
+    char table[50];
+    char data[1000];  // Serialized record
+    time_t timestamp;
+} WALEntry;
+
+void wal_append(WALEntry *entry);
+WALEntry* wal_read(int64_t from_lsn);
+
+2. Replication Protocol
+
+Master:
+  - Write to local database
+  - Append to WAL
+  - Stream WAL to slaves
+
+Slave:
+  - Connect to master
+  - Request WAL from last LSN
+  - Apply WAL entries
+  - Update last LSN
+
+3. Network Protocol
+
+Message format:
+  [4 bytes: message type]
+  [4 bytes: payload length]
+  [N bytes: payload]
+
+Message types:
+  - REPL_HANDSHAKE
+  - REPL_REQUEST_WAL
+  - REPL_SEND_WAL
+  - REPL_HEARTBEAT
+
+Implementation:
+
+// Master-side replication
+void* replication_sender(void *arg) {
+    int slave_socket = *(int*)arg;
+    int64_t slave_lsn = 0;
+
+    while (1) {
+        // Wait for new WAL entries
+        WALEntry *entries = wal_read(slave_lsn);
+
+        if (entries) {
+            // Serialize and send
+            char *payload = serialize_wal_entries(entries);
+            send_message(slave_socket, REPL_SEND_WAL, payload);
+
+            slave_lsn = entries[num_entries - 1].lsn;
+            free(payload);
+        }
+
+        sleep(1);  // Poll interval
+    }
+
+    return NULL;
+}
+
+// Slave-side replication
+void* replication_receiver(void *arg) {
+    const char *master_host = (const char *)arg;
+    int master_socket = connect_to_master(master_host, 9999);
+
+    int64_t my_lsn = load_last_lsn();
+    send_message(master_socket, REPL_REQUEST_WAL, &my_lsn, sizeof(my_lsn));
+
+    while (1) {
+        Message msg = receive_message(master_socket);
+
+        if (msg.type == REPL_SEND_WAL) {
+            WALEntry *entries = deserialize_wal_entries(msg.payload);
+
+            for (int i = 0; i < num_entries; i++) {
+                apply_wal_entry(&entries[i]);
+            }
+
+            save_last_lsn(entries[num_entries - 1].lsn);
+            free(entries);
+        }
+    }
+
+    return NULL;
+}
+
+4. Failover Logic
+
+When master fails:
+  1. Slaves detect (heartbeat timeout)
+  2. Elect new master (e.g., slave with highest LSN)
+  3. New master starts accepting writes
+  4. Other slaves connect to new master
+
+Learning objectives:
+  ✓ Distributed systems concepts
+  ✓ Consensus algorithms (simplified Raft)
+  ✓ Network protocols
+  ✓ Fault tolerance
+  ✓ Asynchronous replication
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║      PART VI: ADVANCED TOPICS - NETWORKING & REMOTE SERVERS                ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+6. NETWORK PROGRAMMING IN C
+════════════════════════════
+
+6.1 SOCKET PROGRAMMING FUNDAMENTALS
+────────────────────────────────────
+
+Berkeley Sockets API (POSIX standard):
+
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+
+Client-Server Model:
+
+Server:                          Client:
+  socket()                         socket()
+  bind()                           connect()
+  listen()                         send()/recv()
+  accept()  ←─── connection ────   close()
+  send()/recv()
+  close()
+
+Basic TCP Server:
+─────────────────
+
+#include <stdio.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
+
+int main() {
+    // 1. Create socket
+    int server_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_socket < 0) {
+        perror("socket");
+        return 1;
+    }
+
+    // 2. Bind to address
+    struct sockaddr_in server_addr = {
+        .sin_family = AF_INET,
+        .sin_addr.s_addr = INADDR_ANY,  // All interfaces
+        .sin_port = htons(8080)         // Port 8080
+    };
+
+    if (bind(server_socket, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+        perror("bind");
+        return 1;
+    }
+
+    // 3. Listen for connections
+    if (listen(server_socket, 5) < 0) {
+        perror("listen");
+        return 1;
+    }
+
+    printf("Server listening on port 8080...\n");
+
+    // 4. Accept connections
+    while (1) {
+        struct sockaddr_in client_addr;
+        socklen_t client_len = sizeof(client_addr);
+
+        int client_socket = accept(server_socket,
+                                   (struct sockaddr*)&client_addr,
+                                   &client_len);
+        if (client_socket < 0) {
+            perror("accept");
+            continue;
+        }
+
+        printf("Client connected\n");
+
+        // 5. Communicate
+        char buffer[1024];
+        ssize_t bytes_read = recv(client_socket, buffer, sizeof(buffer) - 1, 0);
+        if (bytes_read > 0) {
+            buffer[bytes_read] = '\0';
+            printf("Received: %s\n", buffer);
+
+            const char *response = "Hello from server!\n";
+            send(client_socket, response, strlen(response), 0);
+        }
+
+        // 6. Close connection
+        close(client_socket);
+    }
+
+    close(server_socket);
+    return 0;
+}
+
+Basic TCP Client:
+─────────────────
+
+#include <stdio.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+
+int main() {
+    // 1. Create socket
+    int client_socket = socket(AF_INET, SOCK_STREAM, 0);
+
+    // 2. Connect to server
+    struct sockaddr_in server_addr = {
+        .sin_family = AF_INET,
+        .sin_addr.s_addr = inet_addr("127.0.0.1"),  // localhost
+        .sin_port = htons(8080)
+    };
+
+    if (connect(client_socket, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+        perror("connect");
+        return 1;
+    }
+
+    // 3. Send data
+    const char *message = "Hello from client!";
+    send(client_socket, message, strlen(message), 0);
+
+    // 4. Receive response
+    char buffer[1024];
+    ssize_t bytes_read = recv(client_socket, buffer, sizeof(buffer) - 1, 0);
+    if (bytes_read > 0) {
+        buffer[bytes_read] = '\0';
+        printf("Server response: %s\n", buffer);
+    }
+
+    // 5. Close
+    close(client_socket);
+    return 0;
+}
+
+
+6.2 BUILDING A REMOTE DATABASE SERVER
+──────────────────────────────────────
+
+Extend our lesson database to support network access:
+
+Protocol Design:
+────────────────
+
+Wire format (binary):
+  [4 bytes: command]
+  [4 bytes: data length]
+  [N bytes: data]
+
+Commands:
+  CMD_GET_LESSON  = 1
+  CMD_GET_ALL     = 2
+  CMD_INSERT      = 3
+  CMD_UPDATE      = 4
+  CMD_DELETE      = 5
+  CMD_SEARCH      = 6
+
+Server Implementation:
+──────────────────────
+
+File: db_server.c
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <pthread.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
+#include <sqlite3.h>
+#include "db_common.h"
+
+#define PORT 9000
+#define MAX_CLIENTS 10
+
+typedef enum {
+    CMD_GET_LESSON = 1,
+    CMD_GET_ALL = 2,
+    CMD_INSERT = 3,
+    CMD_UPDATE = 4,
+    CMD_DELETE = 5,
+    CMD_SEARCH = 6
+} Command;
+
+typedef struct {
+    int command;
+    int length;
+    char data[4096];
+} Message;
+
+sqlite3 *db;
+pthread_mutex_t db_lock;
+
+Message* handle_get_lesson(int lesson_id) {
+    pthread_mutex_lock(&db_lock);
+
+    const char *sql = "SELECT id, topic, category, difficulty, content, timestamp "
+                      "FROM lessons WHERE id = ?;";
+
+    sqlite3_stmt *stmt;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, lesson_id);
+
+    Message *resp = malloc(sizeof(Message));
+    resp->command = CMD_GET_LESSON;
+
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        // Serialize lesson to JSON
+        snprintf(resp->data, sizeof(resp->data),
+                 "{\"id\":%d,\"topic\":\"%s\",\"category\":\"%s\",\"difficulty\":%d,\"content\":\"%s\",\"timestamp\":%ld}",
+                 sqlite3_column_int(stmt, 0),
+                 sqlite3_column_text(stmt, 1),
+                 sqlite3_column_text(stmt, 2),
+                 sqlite3_column_int(stmt, 3),
+                 sqlite3_column_text(stmt, 4),
+                 sqlite3_column_int64(stmt, 5));
+        resp->length = strlen(resp->data);
+    } else {
+        strcpy(resp->data, "{\"error\":\"Not found\"}");
+        resp->length = strlen(resp->data);
+    }
+
+    sqlite3_finalize(stmt);
+    pthread_mutex_unlock(&db_lock);
+
+    return resp;
+}
+
+void* client_handler(void *arg) {
+    int client_socket = *(int*)arg;
+    free(arg);
+
+    while (1) {
+        Message msg;
+        ssize_t bytes_read = recv(client_socket, &msg, sizeof(msg), 0);
+
+        if (bytes_read <= 0) break;
+
+        Message *response = NULL;
+
+        switch (msg.command) {
+            case CMD_GET_LESSON: {
+                int lesson_id = atoi(msg.data);
+                response = handle_get_lesson(lesson_id);
+                break;
+            }
+            case CMD_GET_ALL:
+                // Implement handle_get_all()
+                break;
+            case CMD_INSERT:
+                // Implement handle_insert()
+                break;
+            case CMD_SEARCH:
+                // Implement handle_search()
+                break;
+            default:
+                response = malloc(sizeof(Message));
+                response->command = msg.command;
+                strcpy(response->data, "{\"error\":\"Unknown command\"}");
+                response->length = strlen(response->data);
+        }
+
+        if (response) {
+            send(client_socket, response, sizeof(Message), 0);
+            free(response);
+        }
+    }
+
+    close(client_socket);
+    return NULL;
+}
+
+int main() {
+    // Initialize database
+    if (init_database(&db) != SQLITE_OK) {
+        fprintf(stderr, "Failed to initialize database\n");
+        return 1;
+    }
+
+    // Enable WAL mode for concurrency
+    sqlite3_exec(db, "PRAGMA journal_mode=WAL;", NULL, NULL, NULL);
+
+    pthread_mutex_init(&db_lock, NULL);
+
+    // Create server socket
+    int server_socket = socket(AF_INET, SOCK_STREAM, 0);
+
+    int opt = 1;
+    setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    struct sockaddr_in server_addr = {
+        .sin_family = AF_INET,
+        .sin_addr.s_addr = INADDR_ANY,
+        .sin_port = htons(PORT)
+    };
+
+    bind(server_socket, (struct sockaddr*)&server_addr, sizeof(server_addr));
+    listen(server_socket, MAX_CLIENTS);
+
+    printf("Database server listening on port %d\n", PORT);
+
+    while (1) {
+        int *client_socket = malloc(sizeof(int));
+        *client_socket = accept(server_socket, NULL, NULL);
+
+        if (*client_socket < 0) {
+            perror("accept");
+            free(client_socket);
+            continue;
+        }
+
+        pthread_t thread;
+        pthread_create(&thread, NULL, client_handler, client_socket);
+        pthread_detach(thread);
+    }
+
+    close_database(db);
+    pthread_mutex_destroy(&db_lock);
+
+    return 0;
+}
+
+Compile:
+  gcc -pthread db_server.c db_common.c -lsqlite3 -o db_server
+
+Run:
+  ./db_server
+
+
+Client Implementation:
+──────────────────────
+
+File: db_client.c
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+
+typedef struct {
+    int command;
+    int length;
+    char data[4096];
+} Message;
+
+#define CMD_GET_LESSON 1
+
+int main(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("Usage: %s <server_ip> <lesson_id>\n", argv[0]);
+        return 1;
+    }
+
+    const char *server_ip = argv[1];
+    int lesson_id = atoi(argv[2]);
+
+    // Connect to server
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+
+    struct sockaddr_in server_addr = {
+        .sin_family = AF_INET,
+        .sin_addr.s_addr = inet_addr(server_ip),
+        .sin_port = htons(9000)
+    };
+
+    if (connect(sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+        perror("connect");
+        return 1;
+    }
+
+    // Send request
+    Message req = {
+        .command = CMD_GET_LESSON,
+        .length = snprintf(req.data, sizeof(req.data), "%d", lesson_id)
+    };
+
+    send(sock, &req, sizeof(req), 0);
+
+    // Receive response
+    Message resp;
+    recv(sock, &resp, sizeof(resp), 0);
+
+    printf("Response:\n%s\n", resp.data);
+
+    close(sock);
+    return 0;
+}
+
+Compile:
+  gcc db_client.c -o db_client
+
+Usage:
+  ./db_client 127.0.0.1 1
+
+
+6.3 HOSTING ON THE INTERNET
+────────────────────────────
+
+To make your database server accessible online:
+
+Option 1: Cloud VM (AWS EC2, Google Cloud, DigitalOcean)
+─────────────────────────────────────────────────────────
+
+1. Create a VM instance (e.g., Ubuntu 22.04)
+
+2. Install dependencies:
+   sudo apt update
+   sudo apt install gcc make libsqlite3-dev
+
+3. Upload your code:
+   scp -r tinyDatabase/ user@your-server-ip:/home/user/
+
+4. Compile on server:
+   cd tinyDatabase
+   make all
+
+5. Run server:
+   ./db_server
+
+6. Configure firewall:
+   sudo ufw allow 9000/tcp
+
+7. Access from anywhere:
+   ./db_client <your-server-ip> 1
+
+
+Option 2: Docker Container
+───────────────────────────
+
+File: Dockerfile
+
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y \
+    gcc \
+    make \
+    libsqlite3-dev
+
+WORKDIR /app
+COPY . .
+
+RUN make all
+
+EXPOSE 9000
+
+CMD ["./db_server"]
+
+Build:
+  docker build -t lesson-db-server .
+
+Run:
+  docker run -p 9000:9000 lesson-db-server
+
+Deploy to cloud:
+  docker tag lesson-db-server username/lesson-db-server
+  docker push username/lesson-db-server
+
+
+Option 3: systemd Service (Linux)
+──────────────────────────────────
+
+File: /etc/systemd/system/lesson-db.service
+
+[Unit]
+Description=Lesson Database Server
+After=network.target
+
+[Service]
+Type=simple
+User=dbuser
+WorkingDirectory=/opt/lesson-db
+ExecStart=/opt/lesson-db/db_server
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+
+Enable and start:
+  sudo systemctl enable lesson-db
+  sudo systemctl start lesson-db
+
+Check status:
+  sudo systemctl status lesson-db
+
+View logs:
+  sudo journalctl -u lesson-db -f
+
+
+6.4 SECURITY FOR NETWORKED DATABASES
+─────────────────────────────────────
+
+Critical concerns when exposing database to network:
+
+1. Authentication
+─────────────────
+
+Add user/password authentication:
+
+typedef struct {
+    char username[50];
+    char password_hash[65];  // SHA-256 hex
+} User;
+
+int authenticate(const char *username, const char *password) {
+    // Load user from database
+    User user = load_user(username);
+
+    // Hash provided password
+    char hash[65];
+    sha256(password, hash);
+
+    // Compare hashes
+    return strcmp(user.password_hash, hash) == 0;
+}
+
+Protocol:
+  1. Client sends AUTH command with username/password
+  2. Server validates credentials
+  3. Server generates session token
+  4. Client includes token in subsequent requests
+
+2. Encryption (TLS)
+───────────────────
+
+Use OpenSSL for encrypted connections:
+
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+
+SSL_CTX* create_ssl_context() {
+    SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
+
+    // Load certificate and private key
+    SSL_CTX_use_certificate_file(ctx, "server.crt", SSL_FILETYPE_PEM);
+    SSL_CTX_use_PrivateKey_file(ctx, "server.key", SSL_FILETYPE_PEM);
+
+    return ctx;
+}
+
+void* client_handler_ssl(void *arg) {
+    SSL *ssl = (SSL*)arg;
+
+    // Read from SSL connection
+    char buffer[1024];
+    SSL_read(ssl, buffer, sizeof(buffer));
+
+    // Write to SSL connection
+    SSL_write(ssl, "response", 8);
+
+    SSL_shutdown(ssl);
+    SSL_free(ssl);
+
+    return NULL;
+}
+
+3. Rate Limiting
+────────────────
+
+Prevent abuse:
+
+typedef struct {
+    char client_ip[16];
+    int request_count;
+    time_t window_start;
+} RateLimitEntry;
+
+int check_rate_limit(const char *client_ip) {
+    RateLimitEntry *entry = find_or_create_entry(client_ip);
+    time_t now = time(NULL);
+
+    // Reset counter every minute
+    if (now - entry->window_start > 60) {
+        entry->request_count = 0;
+        entry->window_start = now;
+    }
+
+    entry->request_count++;
+
+    // Allow max 100 requests per minute
+    return entry->request_count <= 100;
+}
+
+4. Input Validation
+───────────────────
+
+Validate all client input:
+
+int validate_lesson_id(int id) {
+    return id > 0 && id < 1000000;
+}
+
+int validate_topic(const char *topic) {
+    size_t len = strlen(topic);
+    return len > 0 && len < 256;
+}
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║              PART VII: EXTENDED READING & RESOURCES                        ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+7. COMPREHENSIVE RESOURCE LIST
+═══════════════════════════════
+
+7.1 BOOKS (FREE & OPEN ACCESS)
+───────────────────────────────
+
+Modern C Programming:
+──────────────────────
+[1] "Modern C" by Jens Gustedt
+    https://gustedt.gitlabpages.inria.fr/modern-c/
+    ★★★★★ Best modern C book, free PDF
+
+[2] "Beej's Guide to C Programming"
+    https://beej.us/guide/bgc/
+    ★★★★☆ Beginner-friendly, comprehensive
+
+[3] "C Programming: A Modern Approach" by K.N. King
+    (Library/University access)
+    ★★★★★ Excellent structure, exercises
+
+Database Systems:
+──────────────────
+[4] "Readings in Database Systems" (The Red Book)
+    http://www.redbook.io/
+    ★★★★★ Classic papers, graduate level
+
+[5] "Database Internals" by Alex Petrov
+    (Sample chapters free)
+    ★★★★★ Modern storage engines, LSM trees
+
+[6] "Architecture of a Database System"
+    http://db.cs.berkeley.edu/papers/fntdb07-architecture.pdf
+    ★★★★☆ Comprehensive architecture overview
+
+Systems Programming:
+────────────────────
+[7] "The Linux Programming Interface" by Michael Kerrisk
+    (Library access)
+    ★★★★★ Definitive Linux systems programming
+
+[8] "Beej's Guide to Network Programming"
+    https://beej.us/guide/bgnet/
+    ★★★★★ Best free networking guide
+
+[9] "Operating Systems: Three Easy Pieces"
+    https://pages.cs.wisc.edu/~remzi/OSTEP/
+    ★★★★★ Free OS textbook
+
+Performance & Optimization:
+───────────────────────────
+[10] "What Every Programmer Should Know About Memory"
+     https://people.freebsd.org/~lstewart/articles/cpumemory.pdf
+     ★★★★★ CPU cache, memory hierarchy
+
+[11] "Systems Performance" by Brendan Gregg
+     (Samples available)
+     ★★★★★ Performance analysis bible
+
+
+7.2 ONLINE COURSES (FREE)
+──────────────────────────
+
+[12] CMU 15-445: Database Systems
+     https://15445.courses.cs.cmu.edu/
+     YouTube: https://www.youtube.com/playlist?list=PLSE8ODhjZXjbohkNBWQs_otTrBTrjyohi
+     ★★★★★ Best database course, Andy Pavlo
+
+[13] MIT 6.824: Distributed Systems
+     https://pdos.csail.mit.edu/6.824/
+     ★★★★★ Raft, MapReduce, real systems
+
+[14] CS50: Introduction to Computer Science
+     https://cs50.harvard.edu/
+     ★★★★☆ Good C foundation
+
+[15] Stanford CS106B: Programming Abstractions
+     https://web.stanford.edu/class/cs106b/
+     ★★★★☆ Data structures in C++
+
+
+7.3 DOCUMENTATION & REFERENCES
+───────────────────────────────
+
+C Language:
+───────────
+[16] C11 Standard (ISO/IEC 9899:2011)
+     http://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf
+     Reference implementation
+
+[17] cppreference.com
+     https://en.cppreference.com/w/c
+     ★★★★★ Best C reference online
+
+SQLite:
+───────
+[18] SQLite Documentation
+     https://www.sqlite.org/docs.html
+     ★★★★★ Comprehensive, well-written
+
+[19] SQLite Source Code
+     https://www.sqlite.org/src/doc/trunk/README.md
+     Readable, well-commented C code
+
+POSIX/Linux:
+────────────
+[20] POSIX.1-2017
+     https://pubs.opengroup.org/onlinepubs/9699919799/
+     Standard Unix API
+
+[21] Linux man pages
+     https://man7.org/linux/man-pages/
+     ★★★★★ Essential reference
+
+
+7.4 PRACTICE PLATFORMS
+──────────────────────
+
+[22] LeetCode
+     https://leetcode.com/
+     Algorithm practice, C support
+
+[23] HackerRank
+     https://www.hackerrank.com/domains/c
+     C programming challenges
+
+[24] Exercism
+     https://exercism.org/tracks/c
+     Mentored C exercises
+
+[25] Project Euler
+     https://projecteuler.net/
+     Math/programming problems
+
+
+7.5 TOOLS & UTILITIES
+──────────────────────
+
+Compilers:
+──────────
+[26] GCC (GNU Compiler Collection)
+     https://gcc.gnu.org/
+     Default Linux compiler
+
+[27] Clang/LLVM
+     https://clang.llvm.org/
+     Better error messages
+
+Debuggers:
+──────────
+[28] GDB (GNU Debugger)
+     https://www.gnu.org/software/gdb/
+     Standard debugger
+
+[29] Valgrind
+     https://valgrind.org/
+     Memory leak detection
+
+[30] AddressSanitizer
+     -fsanitize=address
+     Faster than Valgrind
+
+Static Analysis:
+────────────────
+[31] cppcheck
+     https://cppcheck.sourceforge.io/
+     Static code analyzer
+
+[32] clang-tidy
+     Part of LLVM
+     Modernization tool
+
+Build Systems:
+──────────────
+[33] Make
+     https://www.gnu.org/software/make/
+     Classic build tool
+
+[34] CMake
+     https://cmake.org/
+     Modern build system
+
+Libraries:
+──────────
+[35] SQLite
+     https://www.sqlite.org/
+     Our database engine
+
+[36] cJSON
+     https://github.com/DaveGamble/cJSON
+     JSON parsing
+
+[37] libcurl
+     https://curl.se/libcurl/
+     HTTP client
+
+[38] OpenSSL
+     https://www.openssl.org/
+     Cryptography, TLS
+
+
+7.6 COMMUNITY RESOURCES
+───────────────────────
+
+Forums:
+───────
+[39] Stack Overflow
+     https://stackoverflow.com/questions/tagged/c
+     Q&A for specific problems
+
+[40] r/C_Programming
+     https://www.reddit.com/r/C_Programming/
+     Active community
+
+[41] comp.lang.c (Usenet)
+     https://groups.google.com/g/comp.lang.c
+     Classic C discussion
+
+Blogs:
+──────
+[42] Julia Evans
+     https://jvns.ca/
+     Systems programming, debugging
+
+[43] Brendan Gregg
+     https://www.brendangregg.com/
+     Performance engineering
+
+[44] PostgreSQL Blog
+     https://www.postgresql.org/about/news/
+     Database internals
+
+
+7.7 PROJECTS TO STUDY
+──────────────────────
+
+Well-Written C Codebases:
+─────────────────────────
+[45] SQLite
+     https://www.sqlite.org/src/
+     50K+ lines, excellent quality
+
+[46] Redis
+     https://github.com/redis/redis
+     30K lines, readable
+
+[47] Nginx
+     https://github.com/nginx/nginx
+     100K+ lines, performance-focused
+
+[48] Git
+     https://github.com/git/git
+     Well-structured, portable
+
+[49] PostgreSQL
+     https://github.com/postgres/postgres
+     1M+ lines, enterprise-grade
+
+
+═══════════════════════════════════════════════════════════════════════════
+
+CONCLUSION
+══════════
+
+This guide provides a complete roadmap from C basics to advanced database
+and networking programming. The progression:
+
+Weeks 1-4:   Modern C fundamentals (Gustedt's book)
+Weeks 5-8:   Database concepts and SQL mastery
+Weeks 9-12:  Advanced systems programming
+Weeks 13-16: Networking and distributed systems
+
+Key principles:
+  1. Build projects, not just read
+  2. Understand the "why", not just the "how"
+  3. Study production code (SQLite, Redis, PostgreSQL)
+  4. Master debugging and profiling tools
+  5. Learn the fundamentals deeply
+
+The lesson database system serves as a foundation. Extend it, break it,
+rebuild it. Understanding comes from doing.
+
+Happy coding! 🚀
+
+═══════════════════════════════════════════════════════════════════════════
